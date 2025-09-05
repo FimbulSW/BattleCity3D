@@ -1,0 +1,52 @@
+{
+  "width": 26,
+  "height": 26,
+  "tileSize": 100.0,
+  "rows": [
+    "..SSSS..FFFF.....SBBBBBBBB",
+	"........P........SBBBBV.BB",
+    "....WWWW.........S.BBBBBBB",
+    "..SSSS..FFFF.....SSSSSS.SS",
+    "..................BBBB..SS",
+    "....WWWW......I....BBBB.SS",
+    "..SSSS..FFFF..I........SSS",
+	"..............I...BBBB....",
+    "....WWWW......I....BBBB...",
+    "..SSSS..FFFF..I........SSS",
+    "..............I...BBBB....",
+    "....WWWW......I....BBBB...",
+    "..SSSS..FFFF..I........SSS",
+	"..............I...BBBB....",
+    "....WWWW......I....BBBB...",
+    "..SSSS..FFFF..I........SSS",
+    "..............I...BBBB....",
+    "....WWWW......I....BBBB...",
+    "..SSSS..FFFF..I...........",
+	"..............I...SSSS....",
+    "....WWWW......I....SSSS...",
+    "..SSSS..FFFF..............",
+    "..........A..Q..R..T......",
+    "....WWWW...........BBBB...",
+    "..SSSS..FFFF..............",
+    "....I....................."
+  ],
+  "legend": {
+    ".": {"terrain":"Ground"},
+    "I": {"terrain":"Ice"},
+    "W": {"terrain":"Water"},
+    "F": {"terrain":"Forest"},
+    "B": {"obstacle":"Brick"},
+    "S": {"obstacle":"Steel"},
+    "P": {"playerStart": true},
+    "A": {"enemySpawn": "Basic"},
+    "Q": {"enemySpawn": "Fast"},
+    "R": {"enemySpawn": "Power"},
+    "T": {"enemySpawn": "Armored"}
+  },
+  "waves": [
+    { "time": 3.0,  "type":"Basic",  "spawn":"A" },
+    { "time": 10.0, "type":"Fast",   "spawn":"Q" },
+    { "time": 20.0, "type":"Power",  "spawn":"R" },
+    { "time": 35.0, "type":"Armored","spawn":"T" }
+  ]
+}

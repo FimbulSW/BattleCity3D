@@ -3,7 +3,7 @@
 #include "MapGridSubsystem.h"
 #include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
-#include "../BattleGameMode.h"
+#include "BattleGameMode.h"
 #include "GameFramework/Pawn.h"
 #include "JsonMapUtils.h"
 #include "Engine/OverlapResult.h"

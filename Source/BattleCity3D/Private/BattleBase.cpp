@@ -3,7 +3,7 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/StaticMesh.h"
 #include "Kismet/GameplayStatics.h"
-#include "../BattleGameMode.h"
+#include "BattleGameMode.h"
 
 ABattleBase::ABattleBase()
 {

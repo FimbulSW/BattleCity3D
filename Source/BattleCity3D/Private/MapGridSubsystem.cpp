@@ -1,6 +1,6 @@
 #include "MapGridSubsystem.h"
 #include "MapConfigAsset.h"
-#include "../MapGenerator.h"
+#include "MapGenerator.h"
 
 bool UMapGridSubsystem::InitializeFromAsset(UMapConfigAsset* Asset,
 	bool bOverrideAssetTileSize,

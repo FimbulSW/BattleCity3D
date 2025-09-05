@@ -7,8 +7,8 @@
 #include "Camera/CameraActor.h"
 #include "Kismet/GameplayStatics.h"
 
-#include "Public/MapConfigAsset.h"
-#include "Public/JsonMapUtils.h"
+#include "MapConfigAsset.h"
+#include "JsonMapUtils.h"
 #include "MapGridSubsystem.h"
 #include "TankPawn.h"
 

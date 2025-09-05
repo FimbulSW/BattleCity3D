@@ -3,7 +3,7 @@
 #include "Components/SceneComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "MapGridSubsystem.h"
-#include "../Projectile.h"
+#include "Projectile.h"
 #include "Engine/StaticMesh.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EnemyMovementComponent.h"

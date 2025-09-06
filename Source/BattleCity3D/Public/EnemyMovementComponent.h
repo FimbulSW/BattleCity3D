@@ -21,7 +21,7 @@ public:
     UPROPERTY(EditAnywhere, Instanced, Category = "Move|Policy", meta = (ShowOnlyInnerProperties))
     UEnemyMovePolicy* MovePolicy = nullptr;
 
-    // === Tuning (igual que antes, pero aquí)
+    // === Tuning
     UPROPERTY(EditAnywhere, Category = "Move|Tuning") float MinLockTime = 0.30f;
     UPROPERTY(EditAnywhere, Category = "Move|Tuning", meta = (ClampMin = "0.01", ClampMax = "1.0")) float AlignEpsilonFactor = 0.25f;
     UPROPERTY(EditAnywhere, Category = "Move|Tuning", meta = (ClampMin = "0.0", ClampMax = "1.0")) float TieDeadbandFactor = 0.10f;
@@ -53,8 +53,10 @@ public:
 #endif
 
 private:
-    TWeakObjectPtr<AEnemyPawn> CachedPawn;
+    TWeakObjectPtr<AEnemyPawn>        CachedPawn;
     TWeakObjectPtr<UMapGridSubsystem> CachedGrid;
+
+    FVector2D LastFacingDir = FVector2D(1.f, 0.f);
 
     // Estado de lock
     EMoveLockAxis AxisLock = EMoveLockAxis::None;

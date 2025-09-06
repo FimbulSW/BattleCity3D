@@ -140,10 +140,103 @@ bool UMapGridSubsystem::IsPassableForPawnAtWorld(const FVector& WorldPos) const
 	return !(O == EObstacleType::Brick || O == EObstacleType::Steel);
 }
 
+void UMapGridSubsystem::GetSpawnWorldLocationsForSymbol(const FString& Symbol, TArray<FVector>& OutWorld) const
+{
+	OutWorld.Reset();
+	if (const TArray<FIntPoint>* Cells = EnemySpawnGridBySymbol.Find(Symbol))
+	{
+		for (const FIntPoint& P : *Cells)
+		{
+			OutWorld.Add(GridToWorld(P.X, P.Y, TileSize * 0.5f));
+		}
+	}
+}
+
+FVector UMapGridSubsystem::SnapWorldToSubgrid(const FVector& World, bool bKeepZ) const
+{
+	FVector Local = MapXform.InverseTransformPosition(World);
+	Local.X = FMath::RoundToFloat(Local.X / SubStep) * SubStep;
+	Local.Y = FMath::RoundToFloat(Local.Y / SubStep) * SubStep;
+	if (!bKeepZ) Local.Z = FMath::RoundToFloat(Local.Z / SubStep) * SubStep;
+	return MapXform.TransformPosition(Local);
+}
+
+void UMapGridSubsystem::GetNeighbors4(const FIntPoint& Cell, TArray<FIntPoint>& OutNeighbors) const
+{
+	OutNeighbors.Reset();
+	const FIntPoint C = Cell;
+
+	const FIntPoint Nbs[4] = {
+		FIntPoint(C.X, C.Y - 1),
+		FIntPoint(C.X + 1, C.Y),
+		FIntPoint(C.X, C.Y + 1),
+		FIntPoint(C.X - 1, C.Y)
+	};
+	for (const FIntPoint& N : Nbs)
+	{
+		if (IsInside(N)) OutNeighbors.Add(N);
+	}
+}
+
+float UMapGridSubsystem::GetTileCost(const FIntPoint& Cell, const FGridCostProfile& Profile) const
+{
+	if (!IsInside(Cell)) return Profile.ImpassableCost;
+
+	const int32 Idx = XYToIndex(Cell.X, Cell.Y);
+
+	// Terreno base: terreno (ice/water/forest/ground)
+	const ETerrainType T = (TerrainGrid.IsValidIndex(Idx)) ? TerrainGrid[Idx] : ETerrainType::Ground;
+	// Obstáculo en la celda
+	const EObstacleType O = (ObstacleGrid.IsValidIndex(Idx)) ? ObstacleGrid[Idx] : EObstacleType::None;
+
+	// Agua: impasable (en tu juego actual)
+	if (T == ETerrainType::Water) return Profile.ImpassableCost;
+
+	// Acero: impasable
+	if (O == EObstacleType::Steel) return Profile.ImpassableCost;
+
+	// Ladrillo: pasable "caro" (atravesable si compensa romper)
+	if (O == EObstacleType::Brick) return Profile.BrickCost;
+
+	// Resto: libre
+	return Profile.FreeCost;
+}
+
+void UMapGridSubsystem::GetAllEnemySpawnCells(TArray<FIntPoint>& Out) const
+{
+	Out.Reset();
+
+	// Reunir la unión de todas las celdas de spawn de todos los símbolos (excepto ".")
+	TSet<FIntPoint> Unique;
+	for (const TPair<FString, TArray<FIntPoint>>& Pair : EnemySpawnGridBySymbol)
+	{
+		// Ignorar símbolo "." (no es spawn)
+		if (Pair.Key.Equals(TEXT("."))) continue;
+
+		for (const FIntPoint& P : Pair.Value)
+		{
+			if (IsInside(P))
+			{
+				Unique.Add(P);
+			}
+		}
+	}
+
+	Out.Reserve(Unique.Num());
+	for (const FIntPoint& P : Unique)
+	{
+		Out.Add(P);
+	}
+}
+
+
+// === HOOK: marcar cambio de grid al destruir ladrillo ===
 bool UMapGridSubsystem::TryHitObstacleAtWorld(const FVector& WorldPos, bool& bWasBrick)
 {
 	bWasBrick = false;
-	int32 X, Y; if (!WorldToGrid(WorldPos, X, Y)) return false;
+	int32 X, Y; 
+	if (!WorldToGrid(WorldPos, X, Y)) 
+		return false;
 
 	const int32 Idx = XYToIndex(X, Y);
 	if (!ObstacleGrid.IsValidIndex(Idx) || !ObstacleHPGrid.IsValidIndex(Idx)) return false;
@@ -164,6 +257,9 @@ bool UMapGridSubsystem::TryHitObstacleAtWorld(const FVector& WorldPos, bool& bWa
 		{
 			Viz->RemoveBrickInstanceAt(X, Y);
 		}
+
+		// NUEVO: notificar cambio de celda para invalidar rutas
+		OnGridCellChanged.Broadcast(FIntPoint(X, Y));
 		return true;
 	}
 	else if (O == EObstacleType::Steel)
@@ -171,25 +267,4 @@ bool UMapGridSubsystem::TryHitObstacleAtWorld(const FVector& WorldPos, bool& bWa
 		return true; // consume proyectil
 	}
 	return false;
-}
-
-void UMapGridSubsystem::GetSpawnWorldLocationsForSymbol(const FString& Symbol, TArray<FVector>& OutWorld) const
-{
-	OutWorld.Reset();
-	if (const TArray<FIntPoint>* Cells = EnemySpawnGridBySymbol.Find(Symbol))
-	{
-		for (const FIntPoint& P : *Cells)
-		{
-			OutWorld.Add(GridToWorld(P.X, P.Y, TileSize * 0.5f));
-		}
-	}
-}
-
-FVector UMapGridSubsystem::SnapWorldToSubgrid(const FVector& World, bool bKeepZ) const
-{
-	FVector Local = MapXform.InverseTransformPosition(World);
-	Local.X = FMath::RoundToFloat(Local.X / SubStep) * SubStep;
-	Local.Y = FMath::RoundToFloat(Local.Y / SubStep) * SubStep;
-	if (!bKeepZ) Local.Z = FMath::RoundToFloat(Local.Z / SubStep) * SubStep;
-	return MapXform.TransformPosition(Local);
 }

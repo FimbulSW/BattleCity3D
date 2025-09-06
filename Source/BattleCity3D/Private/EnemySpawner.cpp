@@ -9,13 +9,17 @@
 #include "Engine/OverlapResult.h"
 #include "EnemyGoalPolicy.h"
 #include "EnemyGoalPolicy_RandomFixed.h"
+#include "EnemyGoalPolicy_AdvantageBias.h"
 
 #include "Engine/Engine.h"
 #include "EnemyEnums.h"
+#include "EnemyMovePolicy.h"
+#include "EnemyMovePolicy_PathFollow.h"
+#include "EnemyMovePolicy_Composite.h"
+#include "EnemyMovementComponent.h"
 
 #include "EnemySpawnPointPolicy_RandomAny.h"
 #include "EnemySpawnPointPolicy_FarFromPlayer.h"
-
 
 AEnemySpawner::AEnemySpawner()
 {
@@ -44,17 +48,22 @@ void AEnemySpawner::BeginPlay()
 	{
 		GoalPolicy = NewObject<UEnemyGoalPolicy>(this, GoalPolicyClass, NAME_None, RF_Transactional);
 	}
+	if (!IsValid(GoalPolicy))
+	{
+		UClass* C = GoalPolicyClass ? *GoalPolicyClass : UEnemyGoalPolicy_AdvantageBias::StaticClass(); // o la que prefieras
+		GoalPolicy = NewObject<UEnemyGoalPolicy>(this, C, NAME_None, RF_Transactional);
+	}
 	if (!GoalPolicy) // fallback
 	{
 		GoalPolicy = NewObject<UEnemyGoalPolicy_RandomFixed>(this, UEnemyGoalPolicy_RandomFixed::StaticClass(), NAME_None, RF_Transactional);
 	}
+
 	if (GoalPolicy) GoalPolicy->Initialize(this);
 
 	if (!SpawnPointPolicy && SpawnPointPolicyClass)
 		SpawnPointPolicy = NewObject<USpawnPointPolicy>(this, SpawnPointPolicyClass, NAME_None, RF_Transactional);
 	if (!SpawnPointPolicy)
 		SpawnPointPolicy = NewObject<UEnemySpawnPointPolicy_RandomAny>(this, UEnemySpawnPointPolicy_RandomAny::StaticClass(), NAME_None, RF_Transactional);
-
 }
 
 #if WITH_EDITOR
@@ -110,7 +119,7 @@ void AEnemySpawner::ScheduleWaves()
 		GetWorldTimerManager().SetTimer(H, D, PW.Time, false);
 	}
 
-	// Precache spawn points por símbolo
+	// Precache spawn points por símbolo (mundo)
 	TSet<FString> Symbols;
 	for (const FPendingWave& W : Pending) Symbols.Add(W.Symbol);
 	for (const FString& S : Symbols)
@@ -120,9 +129,19 @@ void AEnemySpawner::ScheduleWaves()
 		SpawnLocs.Add(S, Locs);
 	}
 
-	// Precargar unión de spawns (ignorando '.')
+	// === NUEVO: precargar UNIÓN deduplicada desde celdas y derivar a mundo ===
+	AllSpawnCells.Reset();
+	Grid->GetAllEnemySpawnCells(AllSpawnCells); // ya ignora '.'
+
+	// Derivar AllSpawnLocs desde celdas (garantiza 1:1, sin duplicados)
 	AllSpawnLocs.Reset();
-	Grid->GetAllSpawnWorldLocations(AllSpawnLocs);
+	AllSpawnLocs.Reserve(AllSpawnCells.Num());
+	for (const FIntPoint& C : AllSpawnCells)
+	{
+		AllSpawnLocs.Add(Grid->GridToWorld(C.X, C.Y, Grid->GetTileSize() * 0.5f));
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("EnemySpawner: %d spawn cells unificadas."), AllSpawnCells.Num());
 }
 
 void AEnemySpawner::OnWaveDue(FPendingWave Wave)
@@ -181,42 +200,56 @@ TSubclassOf<AEnemyPawn> AEnemySpawner::ResolveClassFor(const FString& Type, cons
 	return EnemyClassDefault;
 }
 
-
 void AEnemySpawner::SpawnOne(const FString& Type, const FString& Symbol)
 {
-	// Usar la unión de spawns sin importar el símbolo
+	// Usar la unión de spawns (deduplicada) sin importar el símbolo
 	const TArray<FVector>& Candidates = AllSpawnLocs;
-	if (Candidates.Num() == 0) return;
+	if (Candidates.Num() == 0 || !Grid) return;
 
-	// Intentar encontrar un punto libre (anti-encimado)
+	// Pedimos orden a la policy; si no hay, baraja fallback
 	TArray<int32> Indices;
 	if (SpawnPointPolicy)
 	{
 		FSpawnPointContext Ctx;
 		if (APawn* P = UGameplayStatics::GetPlayerPawn(this, 0)) Ctx.PlayerLoc = P->GetActorLocation();
-		Ctx.bHasBase = (Grid && Grid->HasBase());
+		Ctx.bHasBase = Grid->HasBase();
 		if (Ctx.bHasBase) Ctx.BaseLoc = Grid->GetBaseWorldLocation();
 
 		SpawnPointPolicy->BuildCandidateOrder(Candidates, Ctx, Indices);
 	}
 	if (Indices.Num() == 0)
 	{
-		// fallback: shuffle simple
 		Indices.Reserve(Candidates.Num());
 		for (int32 i = 0; i < Candidates.Num(); ++i) Indices.Add(i);
 		for (int32 i = 0; i < Indices.Num(); ++i) { const int32 j = FMath::RandRange(i, Indices.Num() - 1); Indices.Swap(i, j); }
 	}
 
+	// === NUEVO: evitar duplicar CELDA en el mismo tick
 	FVector SpawnLoc = Candidates[Indices[0]];
+	FIntPoint SpawnCell(-999, -999);
 	bool bFound = false;
+
 	for (int32 idx : Indices)
 	{
 		const FVector& L = Candidates[idx];
-		if (IsSpawnPointFree(L)) { SpawnLoc = L; bFound = true; break; }
+
+		int32 gx, gy;
+		if (!Grid->WorldToGrid(L, gx, gy)) continue; // debería entrar siempre
+
+		const FIntPoint Cell(gx, gy);
+		if (ClaimedCellsThisTick.Contains(Cell)) continue; // YA tomada este tick
+
+		if (!IsSpawnPointFree(L)) continue; // hay algo ocupando (pawn/jugador)
+
+		SpawnLoc = L;
+		SpawnCell = Cell;
+		bFound = true;
+		break;
 	}
 
 	if (!bFound)
 	{
+		// Reintenta pronto (tal vez por colisiones transitorias)
 		FTimerHandle H;
 		FTimerDelegate D;
 		D.BindWeakLambda(this, [this, Type, Symbol]()
@@ -226,6 +259,9 @@ void AEnemySpawner::SpawnOne(const FString& Type, const FString& Symbol)
 		GetWorldTimerManager().SetTimer(H, D, 0.25f, false);
 		return;
 	}
+
+	// Marca celda como "reclamada" este tick
+	ClaimedCellsThisTick.Add(SpawnCell); // === NUEVO
 
 	const FRotator SpawnRot = FRotator::ZeroRotator;
 
@@ -245,7 +281,7 @@ void AEnemySpawner::SpawnOne(const FString& Type, const FString& Symbol)
 	Ctx.AliveCount = AliveCount;
 	Ctx.EnemiesSpawned = EnemiesSpawned;
 	Ctx.MaxAlive = MaxAlive;
-	Ctx.bHasBase = (Grid && Grid->HasBase());
+	Ctx.bHasBase = Grid->HasBase();
 	Ctx.bHasPlayer = (UGameplayStatics::GetPlayerPawn(this, 0) != nullptr);
 
 	if (GoalPolicy)
@@ -264,6 +300,29 @@ void AEnemySpawner::SpawnOne(const FString& Type, const FString& Symbol)
 	OnEnemySpawned.Broadcast(E);
 
 	if (GoalPolicy) GoalPolicy->OnAliveCountChanged(AliveCount);
+
+	if (UEnemyMovementComponent* Move = E->FindComponentByClass<UEnemyMovementComponent>())
+	{
+		auto ApplyDefaultsTo = [this](UEnemyMovePolicy* Policy)
+			{
+				if (auto* PF = Cast<UEnemyMovePolicy_PathFollow>(Policy))
+				{
+					PF->Cost = PathDefaults.Cost;
+					PF->ReplanInterval = PathDefaults.ReplanInterval;
+					PF->HorizonSteps = PathDefaults.HorizonSteps;
+					PF->bTargetIsPlayer = PathDefaults.bTargetIsPlayer;
+				}
+			};
+
+		if (auto* Comp = Cast<UEnemyMovePolicy_Composite>(Move->MovePolicy)) // si tienes getter
+		{
+			for (UEnemyMovePolicy* Sub : Comp->Policies) ApplyDefaultsTo(Sub);
+		}
+		else if (UEnemyMovePolicy* Single = Move->MovePolicy)
+		{
+			ApplyDefaultsTo(Single);
+		}
+	}
 
 	// Cuando muera:
 	E->OnDestroyed.AddDynamic(this, &AEnemySpawner::HandleActorDestroyed);
@@ -298,7 +357,6 @@ bool AEnemySpawner::IsSpawnPointFree(const FVector& Location) const
 	return true;
 }
 
-
 void AEnemySpawner::HandleActorDestroyed(AActor* Dead)
 {
 	AliveCount = FMath::Max(0, AliveCount - 1);
@@ -318,7 +376,10 @@ void AEnemySpawner::HandleActorDestroyed(AActor* Dead)
 void AEnemySpawner::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (GoalPolicy) GoalPolicy->TickGoal(DeltaSeconds);
+
+	ClaimedCellsThisTick.Reset();
+
+	if (GoalPolicy && IsValid(GoalPolicy)) GoalPolicy->TickGoal(DeltaSeconds);
 
 	if (!bAIDebug) return;
 

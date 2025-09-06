@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "EnemyEnums.h"
+#include "GridPathTypes.h"
 #include "EnemySpawner.generated.h"
 
 class UMapGridSubsystem;
@@ -10,6 +11,16 @@ class AEnemyPawn;
 class UEnemyGoalPolicy;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEnemyEvent, AEnemyPawn*, Enemy);
+
+USTRUCT(BlueprintType)
+struct FEnemyPathDefaults
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere) FGridCostProfile Cost = { 1.f, 10.f, 1e9f };
+	UPROPERTY(EditAnywhere) float ReplanInterval = 0.35f;
+	UPROPERTY(EditAnywhere) int32 HorizonSteps = 6;
+	UPROPERTY(EditAnywhere) bool  bTargetIsPlayer = true;
+};
 
 USTRUCT()
 struct FPendingWave
@@ -47,9 +58,13 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AI|Goals")
 	int32 AdvantageLowThreshold = 2;
 
+	UPROPERTY(EditAnywhere, Instanced, Category = "AI|Goals")
+	UEnemyGoalPolicy* GoalPolicy = nullptr;
 	// Selector de clase (dropdown)
 	UPROPERTY(EditAnywhere, Category = "AI|Goals")
 	TSubclassOf<UEnemyGoalPolicy> GoalPolicyClass;
+
+	UPROPERTY(EditAnywhere, Category = "AI|Path") FEnemyPathDefaults PathDefaults;
 
 	// Selector + instancia de SpawnPointPolicy
 	UPROPERTY(EditAnywhere, Category = "Spawns|Policy")
@@ -72,7 +87,6 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Spawn", meta = (ClampMin = "1"))
 	int32 MaxAlive = 4;
 
-	// En public:
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bAIDebug = false;
 
@@ -85,7 +99,6 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
-
 	virtual void Tick(float DeltaSeconds) override;
 
 private:
@@ -97,10 +110,13 @@ private:
 	int32 EnemiesSpawned = 0;
 	int32 AliveCount = 0;
 
-	// Cache de puntos por símbolo
+	// Cache de puntos por símbolo (mundo)
 	TMap<FString, TArray<FVector>> SpawnLocs;
-	// Unión de todos los puntos de spawn
-	TArray<FVector> AllSpawnLocs;
+
+	// === NUEVO: unión deduplicada de spawns como CELDAS + copia en mundo ===
+	TArray<FIntPoint> AllSpawnCells;   // <-- nuevo
+	TArray<FVector>   AllSpawnLocs;    // (derivado de AllSpawnCells)
+
 	// Lista de vivos (para políticas)
 	TArray<TWeakObjectPtr<AEnemyPawn>> LivingEnemies;
 
@@ -114,8 +130,9 @@ private:
 	static class ABattleGameMode* GetBattleGM(UWorld* World);
 
 	UFUNCTION() void HandleActorDestroyed(AActor* Dead);
-	UEnemyGoalPolicy* GoalPolicy = nullptr;
 
 	UFUNCTION(Exec)
 	void bc_ai_debug(int32 v);
+
+	TSet<FIntPoint> ClaimedCellsThisTick;
 };

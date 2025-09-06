@@ -4,6 +4,7 @@
 #include "EnemyMovePolicy.generated.h"
 
 class UEnemyMovementComponent;
+class UMapGridSubsystem;
 
 UENUM()
 enum class EMoveLockAxis : uint8 { None, X, Y };
@@ -48,6 +49,8 @@ class BATTLECITY3D_API UEnemyMovePolicy : public UObject
 public:
     virtual void Initialize(UEnemyMovementComponent* InOwner);
     virtual void ComputeMove(const FMoveContext& Ctx, FMoveDecision& Out) PURE_VIRTUAL(UEnemyMovePolicy::ComputeMove, );
+
+    virtual bool BuildCandidateOrder(UMapGridSubsystem* Grid, TArray<FIntPoint>& Out);
 
 protected:
     UPROPERTY(Transient) TWeakObjectPtr<UEnemyMovementComponent> Owner;

@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "JsonMapUtils.h"
+#include "GridPathTypes.h"
 #include "MapGridSubsystem.generated.h"
 
 class UMapConfigAsset;
@@ -11,6 +12,8 @@ UENUM(BlueprintType)
 enum class ETerrainType : uint8 { Ground, Ice, Water, Forest };
 UENUM(BlueprintType)
 enum class EObstacleType : uint8 { None, Brick, Steel };
+
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnGridCellChanged, FIntPoint);
 
 UCLASS()
 class BATTLECITY3D_API UMapGridSubsystem : public UGameInstanceSubsystem
@@ -65,6 +68,20 @@ public:
 	float  GetTileSize() const { return TileSize; }
 	FVector GetPlayerWorldStart() const { return PlayerWorldStart; }
 
+	// ==== Pathfinding utils ====
+	void GetNeighbors4(const FIntPoint& Cell, TArray<FIntPoint>& OutNeighbors) const;
+	float GetTileCost(const FIntPoint& Cell, const FGridCostProfile& Profile) const;
+	bool IsPassableCell(const FIntPoint& Cell, const FGridCostProfile& Profile) const
+	{
+		return GetTileCost(Cell, Profile) < Profile.ImpassableCost;
+	}
+
+	// NUEVO: unión de celdas de spawn de todos los símbolos (excepto ".")
+	void GetAllEnemySpawnCells(TArray<FIntPoint>& Out) const;
+
+	// Evento: ladrillo destruido, etc.
+	FOnGridCellChanged OnGridCellChanged;
+
 private:
 	// Datos mapa
 	int32 MapWidth = 0, MapHeight = 0;
@@ -98,4 +115,10 @@ private:
 	FVector PlayerWorldStart = FVector::ZeroVector;
 
 	FORCEINLINE int32 XYToIndex(int32 X, int32 Y) const { return X + Y * MapWidth; }
+
+	// bounds
+	bool IsInside(const FIntPoint& Cell) const
+	{
+		return Cell.X >= 0 && Cell.Y >= 0 && Cell.X < MapWidth && Cell.Y < MapHeight;
+	}
 };

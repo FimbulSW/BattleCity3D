@@ -7,6 +7,8 @@
 #include "Engine/GameInstance.h"
 #include "EnemyMovePolicy_GridAxisLock.h"
 
+static int32 Sign01(float V) { return (V > 0.f) ? +1 : (V < 0.f) ? -1 : 0; }
+
 UEnemyMovementComponent::UEnemyMovementComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
@@ -21,6 +23,20 @@ void UEnemyMovementComponent::BeginPlay()
         ? GetWorld()->GetGameInstance()->GetSubsystem<UMapGridSubsystem>()
         : nullptr;
     EnsurePolicy();
+
+    // Inicializa facing local desde el Pawn si existe, si no, (1,0)
+    if (CachedPawn.IsValid())
+    {
+        const FVector2D PawnFacing = CachedPawn->GetFacingDir();
+        if (!PawnFacing.IsNearlyZero()) LastFacingDir = FVector2D(Sign01(PawnFacing.X), Sign01(PawnFacing.Y));
+    }
+
+    if (UMapGridSubsystem* G = GetGrid())
+    {
+        G->OnGridCellChanged.AddLambda([this](FIntPoint) {
+            // (Fase 4: aquí podríamos marcar replan inmediato)
+            });
+    }
 }
 
 void UEnemyMovementComponent::EnsurePolicy()
@@ -35,7 +51,8 @@ void UEnemyMovementComponent::EnsurePolicy()
         MovePolicy = NewObject<UEnemyMovePolicy>(this, Cls, NAME_None, RF_Transactional);
     }
 
-    if (MovePolicy) MovePolicy->Initialize(this);
+    if (MovePolicy) 
+        MovePolicy->Initialize(this);
 }
 
 float UEnemyMovementComponent::GetTileSizeSafe() const
@@ -46,7 +63,17 @@ float UEnemyMovementComponent::GetTileSizeSafe() const
 
 UMapGridSubsystem* UEnemyMovementComponent::GetGrid() const
 {
-    return CachedGrid.Get();
+    if (CachedGrid.IsValid()) return CachedGrid.Get();
+
+    if (UWorld* W = GetWorld())
+    {
+        if (UMapGridSubsystem* G = W->GetGameInstance()->GetSubsystem<UMapGridSubsystem>())
+        {
+            const_cast<UEnemyMovementComponent*>(this)->CachedGrid = G;
+            return G;
+        }
+    }
+    return nullptr;
 }
 
 bool UEnemyMovementComponent::IsAheadBlocked(bool bAxisX, int Dir, float DistWorld) const
@@ -74,8 +101,8 @@ uint8 UEnemyMovementComponent::QueryFrontObstacle(float MaxDistanceWorld, FVecto
     if (!CachedGrid.IsValid() || !CachedPawn.IsValid()) return 0;
     const float Tile = GetTileSizeSafe();
 
-    // Facing del Pawn
-    const FVector2D Facing = CachedPawn->GetFacingDir();
+    // === NUEVO: usar facing local del componente
+    const FVector2D Facing = LastFacingDir;
     const bool bAxisX = (FMath::Abs(Facing.X) >= FMath::Abs(Facing.Y));
     const int  Dir = bAxisX ? ((Facing.X >= 0.f) ? +1 : -1)
         : ((Facing.Y >= 0.f) ? +1 : -1);
@@ -144,9 +171,7 @@ uint8 UEnemyMovementComponent::CheckCardinalLineToTarget(const FVector& From, co
 bool UEnemyMovementComponent::IsFireReady() const
 {
     if (!CachedPawn.IsValid()) return false;
-    // Usa el timer del Pawn; si no existe en tu Pawn, expón un método
     const UWorld* W = GetWorld(); if (!W) return false;
-    // Permitimos que el Pawn implemente el check si ya lo tenías
     return CachedPawn->IsFireReady();
 }
 
@@ -161,15 +186,19 @@ void UEnemyMovementComponent::ApplyDecision(const FMoveDecision& D)
         LockUntilTime = UGameplayStatics::GetTimeSeconds(this) + D.LockTime;
     }
 
-    // Movimiento (el Pawn sigue moviendo como antes con RawMoveInput)
+    // === NUEVO: actualizar facing local con la última orden de movimiento cardinal
+    if (!D.RawMoveInput.IsNearlyZero())
+    {
+        LastFacingDir = FVector2D((float)Sign01(D.RawMoveInput.X), (float)Sign01(D.RawMoveInput.Y));
+    }
+
+    // Movimiento
     CachedPawn->ApplyRawMoveInput(D.RawMoveInput);
 
     // Disparo frontal si procede
     if (D.bRequestFrontShot && IsFireReady())
     {
         CachedPawn->Fire();
-
-        // Si quieres re-fasear el timer, hazlo en el Pawn (o añade un Exec aquí)
     }
 }
 
@@ -182,7 +211,10 @@ void UEnemyMovementComponent::TickComponent(float DT, ELevelTick levelTick, FAct
     // Construir contexto
     FMoveContext Ctx;
     Ctx.Location = CachedPawn->GetActorLocation();
-    Ctx.FacingDir = CachedPawn->GetFacingDir();
+
+    // === NUEVO: usar facing local (no dependemos de que el Pawn lo actualice)
+    Ctx.FacingDir = LastFacingDir;
+
     Ctx.TargetWorld = CachedPawn->GetAITargetWorld();
 
     const float Tile = GetTileSizeSafe();
@@ -201,16 +233,15 @@ void UEnemyMovementComponent::TickComponent(float DT, ELevelTick levelTick, FAct
     FMoveDecision Dec;
     MovePolicy->ComputeMove(Ctx, Dec);
 
-    // Si hay lock activo que no expiró y no hay bloqueo real, mantener axis
+    // Lock activo: mantener eje si no hay bloqueo real
     const double Now = UGameplayStatics::GetTimeSeconds(this);
     if (AxisLock != EMoveLockAxis::None && Now < LockUntilTime)
     {
         const bool bAxisX = (AxisLock == EMoveLockAxis::X);
-        const int Dir = bAxisX ? ((Ctx.FacingDir.X >= 0) ? +1 : -1)
-            : ((Ctx.FacingDir.Y >= 0) ? +1 : -1);
+        const int Dir = bAxisX ? ((LastFacingDir.X >= 0) ? +1 : -1)
+            : ((LastFacingDir.Y >= 0) ? +1 : -1);
         if (!IsAheadBlocked(bAxisX, Dir, Tile * LookAheadTiles))
         {
-            // forzar mantener
             Dec.RawMoveInput = bAxisX ? FVector2D(Dir, 0) : FVector2D(0, Dir);
             Dec.LockAxis = AxisLock;
             Dec.LockTime = LockUntilTime - Now;

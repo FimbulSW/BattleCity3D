@@ -7,8 +7,6 @@
 #include "Engine/GameInstance.h"
 #include "Components/EnemyMovement/EnemyMovePolicies/EnemyMovePolicy_GridAxisLock.h"
 
-static int32 Sign01(float V) { return (V > 0.f) ? +1 : (V < 0.f) ? -1 : 0; }
-
 UEnemyMovementComponent::UEnemyMovementComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;

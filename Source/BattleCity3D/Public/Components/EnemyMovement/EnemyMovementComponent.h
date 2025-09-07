@@ -8,6 +8,8 @@ class AEnemyPawn;
 class UMapGridSubsystem;
 class UEnemyMovePolicy;
 
+static int32 Sign01(float V) { return (V > 0.f) ? +1 : (V < 0.f) ? -1 : 0; }
+
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
 class BATTLECITY3D_API UEnemyMovementComponent : public UActorComponent
 {

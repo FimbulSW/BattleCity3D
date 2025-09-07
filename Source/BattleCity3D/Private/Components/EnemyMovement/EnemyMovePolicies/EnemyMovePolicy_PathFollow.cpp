@@ -91,8 +91,6 @@ void UEnemyMovePolicy_PathFollow::MaybeReplan(const FMoveContext& Ctx, const FIn
 	}
 }
 
-static int32 Sign01(float V) { return (V > 0.f) ? 1 : (V < 0.f) ? -1 : 0; }
-
 FVector2D UEnemyMovePolicy_PathFollow::ToCardinalInput(const FVector& DirWorld)
 {
 	// DirWorld cardinal (1,0,0) o (0,1,0) según eje dominante

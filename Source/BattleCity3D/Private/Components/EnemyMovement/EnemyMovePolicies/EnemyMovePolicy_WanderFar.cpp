@@ -4,8 +4,6 @@
 #include "Enemies/EnemyPawn.h"
 #include "Kismet/GameplayStatics.h"
 
-static int32 Sign01(float V) { return (V > 0.f) ? +1 : (V < 0.f) ? -1 : 0; }
-
 void UEnemyMovePolicy_WanderFar::Initialize(UEnemyMovementComponent* InOwner)
 {
 	Super::Initialize(InOwner);

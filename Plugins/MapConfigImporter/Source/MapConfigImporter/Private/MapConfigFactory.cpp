@@ -1,6 +1,6 @@
 // MapConfigFactory.cpp
 #include "MapConfigFactory.h"
-#include "MapConfigAsset.h"                 // Nuestro asset (vive en BattleCity3D)
+#include "Map/MapConfigAsset.h"                 // Nuestro asset (vive en BattleCity3D)
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Dom/JsonObject.h"

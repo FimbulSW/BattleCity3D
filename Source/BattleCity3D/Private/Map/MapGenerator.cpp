@@ -193,7 +193,10 @@ void AMapGenerator::BeginPlay()
 		{
 			UE_LOG(LogTemp, Error, TEXT("MapGridSubsystem init failed"));
 		}
-		PlayerWorldStart = Grid->GetPlayerWorldStart();
+		TArray<FVector> PlayerSpawns;
+		Grid->GetPlayerSpawnWorldLocations(PlayerSpawns);
+		if (PlayerSpawns.Num() > 0)
+			PlayerWorldStart = PlayerSpawns[0]; //TODO: Randomizar donde aparece el jugador.
 	}
 
 	SpawnAndPossessPlayer();

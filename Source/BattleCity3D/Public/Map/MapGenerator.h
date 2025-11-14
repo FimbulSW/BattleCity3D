@@ -32,8 +32,8 @@ public:
 	float TileSize = 200.f;
 
 	// Subgrid (snap fino configurable)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map|Core", meta = (ClampMin = "1", ClampMax = "128"))
-	int32 SubdivisionsPerTile = 20;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map|Core", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 SubdivisionsPerTile = 2;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map|Core")
 	int32 MapWidth = 0;

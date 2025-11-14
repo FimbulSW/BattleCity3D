@@ -38,6 +38,29 @@ bool UMapGridSubsystem::BuildFromAsset(const FMapConfig& Map, const TMap<FString
 
 	EnemySpawnGridBySymbol.Reset();
 	Waves = Map.waves;
+	PlayerSpawnCells.Reset();
+	EnemySpawnCells.Reset();
+	BaseCells.Reset();
+	BaseHPs.Reset();
+
+	auto InBounds = [&](int32 X, int32 Y) { return X >= 0 && X < MapWidth && Y >= 0 && Y < MapHeight; };
+
+	if (Map.spawns.player.Num() > 0)
+	{
+		for (const FSpawnPoint& P : Map.spawns.player)
+			if (InBounds(P.x, P.y)) PlayerSpawnCells.Add(FIntPoint(P.x, P.y));
+	}
+	if (Map.spawns.enemies.Num() > 0)
+	{
+		for (const FSpawnPoint& P : Map.spawns.enemies)
+			if (InBounds(P.x, P.y)) EnemySpawnCells.Add(FIntPoint(P.x, P.y));
+	}
+	if (Map.spawns.bases.Num() > 0)
+	{
+		for (const FBaseSpawn& B : Map.spawns.bases)
+			if (InBounds(B.x, B.y)) { BaseCells.Add(FIntPoint(B.x, B.y)); BaseHPs.Add(FMath::Max(1, B.hp)); }
+	}
+
 
 	bHasBase = false; BaseCell = FIntPoint(-1, -1); BaseWorld = FVector::ZeroVector; BaseHP = 1;
 
@@ -90,6 +113,19 @@ bool UMapGridSubsystem::BuildFromAsset(const FMapConfig& Map, const TMap<FString
 			}
 		}
 	}
+
+	if (BaseCells.Num() > 0)
+	{
+		bHasBase = true;
+		BaseCell = BaseCells[0];
+		BaseWorld = GridToWorld(BaseCell.X, BaseCell.Y, TileSize * 0.5f);
+		BaseHP = BaseHPs.IsValidIndex(0) ? BaseHPs[0] : 1;
+	}
+
+	// PlayerWorldStart (preferir arreglo nuevo)
+	if (PlayerSpawnCells.Num() > 0)
+		PlayerWorldStart = GridToWorld(PlayerSpawnCells[0].X, PlayerSpawnCells[0].Y, TileSize * 0.5f);
+
 
 	return true;
 }
@@ -267,4 +303,23 @@ bool UMapGridSubsystem::TryHitObstacleAtWorld(const FVector& WorldPos, bool& bWa
 		return true; // consume proyectil
 	}
 	return false;
+}
+
+void UMapGridSubsystem::GetPlayerSpawnWorldLocations(TArray<FVector>& Out) const
+{
+	Out.Reset();
+	for (const FIntPoint& C : PlayerSpawnCells)
+		Out.Add(GridToWorld(C.X, C.Y, TileSize * 0.5f));
+}
+void UMapGridSubsystem::GetEnemySpawnWorldLocations(TArray<FVector>& Out) const
+{
+	Out.Reset();
+	for (const FIntPoint& C : EnemySpawnCells)
+		Out.Add(GridToWorld(C.X, C.Y, TileSize * 0.5f));
+}
+void UMapGridSubsystem::GetBaseWorldLocations(TArray<FVector>& Out) const
+{
+	Out.Reset();
+	for (int32 i = 0; i < BaseCells.Num(); ++i)
+		Out.Add(GridToWorld(BaseCells[i].X, BaseCells[i].Y, TileSize * 0.5f));
 }

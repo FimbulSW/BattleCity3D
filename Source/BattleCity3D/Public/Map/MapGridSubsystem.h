@@ -62,6 +62,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MapGrid|Subgrid") float  GetSubStep() const { return SubStep; }
 	UFUNCTION(BlueprintCallable, Category = "MapGrid|Subgrid") FVector SnapWorldToSubgrid(const FVector& World, bool bKeepZ = true) const;
 
+	UFUNCTION(BlueprintCallable, Category = "MapGrid|Spawns")
+	void GetPlayerSpawnWorldLocations(TArray<FVector>& Out) const;
+	UFUNCTION(BlueprintCallable, Category = "MapGrid|Spawns")
+	void GetEnemySpawnWorldLocations(TArray<FVector>& Out) const;
+	UFUNCTION(BlueprintCallable, Category = "MapGrid|Spawns")
+	void GetBaseWorldLocations(TArray<FVector>& Out) const;
+	const TArray<FIntPoint>& GetPlayerSpawnCells() const { return PlayerSpawnCells; }
+	const TArray<FIntPoint>& GetEnemySpawnCells() const { return EnemySpawnCells; }
+
 	// Accesores
 	int32  GetWidth() const { return MapWidth; }
 	int32  GetHeight() const { return MapHeight; }
@@ -95,6 +104,11 @@ private:
 	TArray<ETerrainType>  TerrainGrid;
 	TArray<EObstacleType> ObstacleGrid;
 	TArray<uint8>         ObstacleHPGrid;
+
+	TArray<FIntPoint> PlayerSpawnCells;
+	TArray<FIntPoint> EnemySpawnCells;
+	TArray<FIntPoint> BaseCells;
+	TArray<int32>     BaseHPs;
 
 	// Base
 	bool     bHasBase = false;

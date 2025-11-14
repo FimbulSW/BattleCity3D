@@ -4,9 +4,32 @@
 
 #include "CoreMinimal.h"
 #include "JsonMapUtils.generated.h"
-/**
- *
- */
+
+USTRUCT(BlueprintType)
+struct FSpawnPoint {
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 x = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 y = 0;
+};
+
+USTRUCT(BlueprintType)
+struct FBaseSpawn {
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 x = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 y = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) int32 hp = 1;
+	// Futuro multi-bandos (ally/enemy). Por ahora solo "ally" se usa.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) FString team = TEXT("ally");
+};
+
+USTRUCT(BlueprintType)
+struct FMapSpawns {
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FSpawnPoint> player;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FSpawnPoint> enemies;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite) TArray<FBaseSpawn>  bases;
+};
+
 USTRUCT(BlueprintType)
 struct FLegendEntry {
 	GENERATED_USTRUCT_BODY()
@@ -38,4 +61,5 @@ struct FMapConfig {
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config") TArray<FString> rows;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config") TMap<FString, FLegendEntry> legend;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config") TArray<FWaveEntry> waves;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Config") FMapSpawns spawns;
 };

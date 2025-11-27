@@ -314,7 +314,7 @@ void AEnemySpawner::SpawnOne(const FString& Type, const FString& Symbol)
 				}
 			};
 
-		if (auto* Comp = Cast<UEnemyMovePolicy_Composite>(Move->MovePolicy)) // si tienes getter
+		if (auto* Comp = Cast<UEnemyMovePolicy_Composite>(Move->MovePolicy)) 
 		{
 			for (UEnemyMovePolicy* Sub : Comp->Policies) ApplyDefaultsTo(Sub);
 		}
@@ -411,4 +411,12 @@ void AEnemySpawner::bc_ai_debug(int32 v)
 {
 	bAIDebug = (v != 0);
 	UE_LOG(LogTemp, Log, TEXT("bc.ai.debug = %d"), bAIDebug ? 1 : 0);
+}
+
+void AEnemySpawner::NotifyEnemyDeath()
+{
+	if (AliveCount > 0)
+	{
+		AliveCount--;
+	}
 }

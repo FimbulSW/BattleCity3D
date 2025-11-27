@@ -67,10 +67,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "AI|Path") FEnemyPathDefaults PathDefaults;
 
 	// Selector + instancia de SpawnPointPolicy
-	UPROPERTY(EditAnywhere, Category = "Spawns|Policy")
+	UPROPERTY(EditAnywhere, Category = "Spawn|Policy")
 	TSubclassOf<USpawnPointPolicy> SpawnPointPolicyClass;
 
-	UPROPERTY(EditAnywhere, Instanced, Category = "Spawns|Policy")
+	UPROPERTY(EditAnywhere, Instanced, Category = "Spawn|Policy")
 	USpawnPointPolicy* SpawnPointPolicy = nullptr;
 
 	// Overrides de clase
@@ -83,6 +83,9 @@ public:
 	TMap<FName, TSubclassOf<AEnemyPawn>> CustomTypeToClass;
 	UPROPERTY(EditAnywhere, Category = "Spawn|Clases", meta = (DisplayName = "Overrides por Símbolo"))
 	TMap<FName, TSubclassOf<AEnemyPawn>> SymbolToClass;
+	
+	UFUNCTION(BlueprintCallable, Category = "Spawn")
+	void NotifyEnemyDeath();
 
 	UPROPERTY(EditAnywhere, Category = "Spawn", meta = (ClampMin = "1"))
 	int32 MaxAlive = 4;

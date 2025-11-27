@@ -1,20 +1,14 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "GameFramework/Pawn.h"
+#include "Common/BattleTankPawn.h" // Heredar de la base
 #include "EnemyEnums.h"
 #include "EnemyPawn.generated.h"
 
-class UStaticMeshComponent;
-class USceneComponent;
-class UMapGridSubsystem;
-class AProjectile;
-
 class UEnemyMovementComponent;
-class UMapGridSubsystem;
 
-
+// Heredamos de ABattleTankPawn
 UCLASS()
-class BATTLECITY3D_API AEnemyPawn : public APawn
+class BATTLECITY3D_API AEnemyPawn : public ABattleTankPawn
 {
 	GENERATED_BODY()
 
@@ -23,114 +17,67 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override {}
 
 	void ApplyHit(int32 Dmg);
 
-	// --- Stats base ---
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") float MoveSpeed = 900.f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") float AccelRate = 6.f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") float DecelRate = 8.f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") float AlignRate = 2200.f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") float StopMargin = 3.f;
-
+	// Configuración específica de Enemigo
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") int32 HitPoints = 1;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") float FireInterval = 1.5f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") TSubclassOf<AProjectile> ProjectileClass;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") TSubclassOf<class AProjectile> ProjectileClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy") EEnemyType EnemyType = EEnemyType::Basic;
 
 	UPROPERTY() TWeakObjectPtr<class AEnemySpawner> SpawnerRef;
 
-	// Objetivo según la meta actual (con fallbacks)
+	// AI Brain
 	FVector GetAITargetWorld() const;
 
-
-	// Permite que el BP decida si tomar el tipo/estadísticas del spawner
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Tuning")
-	bool bAcceptTypeFromSpawner = true;
-
-	// Setter que respeta la bandera anterior
-	UFUNCTION(BlueprintCallable, Category = "Enemy|Tuning")
-	void SetTypeFromSpawner(EEnemyType InType);
-
-	// Daño genérico de Unreal
-	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent,
-		class AController* EventInstigator, AActor* DamageCauser) override;
-
-	// === AI Goal ===
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|AI|Goal")
 	EEnemyGoal Goal = EEnemyGoal::HuntBase;
 
-	// === AI|Move Lock (config) ===
-	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Move")
-	float MinLockTime = 0.30f;
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Brain") float AIReplanInterval = 0.25f;
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Brain") float AICommitmentTimeAfterTurn = 1.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Move", meta = (ClampMin = "0.01", ClampMax = "1.0"))
-	float AlignEpsilonFactor = 0.25f; // del tamaño del tile
-
-	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Move", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float TieDeadbandFactor = 0.10f;  // compara |dx|-|dy|
-
-	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Move", meta = (ClampMin = "1", ClampMax = "3"))
-	int32 LookAheadTiles = 1; // 1..2 recomendable
-	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Move")
-	float TurnDelay = 0.12f;
-
-	// Tiempo mínimo entre decisiones de re-rutado hacia el objetivo (evita temblor)
-	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Brain")
-	float AIReplanInterval = 0.25f;
-
-	// Tiempo que la IA se obliga a mantener una dirección tras chocar y girar (para salir del atasco)
-	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Brain")
-	float AICommitmentTimeAfterTurn = .5f;
-
-	// Expuesto para el MovementComponent
-	UFUNCTION(BlueprintCallable, Category = "Enemy|AI") FVector2D GetFacingDir() const { return FacingDir; }
-	UFUNCTION(BlueprintCallable, Category = "Enemy|AI") void      ApplyRawMoveInput(const FVector2D& In) { RawMoveInput = In; }
-	UFUNCTION(BlueprintCallable, Category = "Enemy|AI") bool      IsFireReady() const;
-	bool bPreferShootWhenFrontBrick = true;
-
+	// Funciones auxiliares para la AI
+	bool IsFireReady() const;
 	void Fire();
-protected:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy") USceneComponent* Root;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy") UStaticMeshComponent* Body;
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy") USceneComponent* Muzzle;
+
+	// Métodos para que el MovementComponent controle este Pawn
+	// Nota: ApplyRawMoveInput es redundante si accedemos directo a RawMoveInput de la base, 
+	// pero lo mantenemos por compatibilidad con tu componente.
+	void ApplyRawMoveInput(const FVector2D& In) { RawMoveInput = In; }
+
+	// tuning
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Enemy|Tuning") bool bAcceptTypeFromSpawner = true;
+	UFUNCTION(BlueprintCallable, Category = "Enemy|Tuning") void SetTypeFromSpawner(EEnemyType InType);
+	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, class AController* EventInstigator, AActor* DamageCauser) override;
+
+	// Componente de cerebro
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|Components")
 	UEnemyMovementComponent* MovementComp = nullptr;
 
-
 private:
-	UPROPERTY() UMapGridSubsystem* Grid = nullptr;
-	float CurrentTurnDelay = 0.0f;
-
-	// Movimiento tipo tanque con subgrid
-	FVector2D RawMoveInput = FVector2D(1, 0);
-	FVector2D Velocity = FVector2D::ZeroVector;
-	FVector2D FacingDir = FVector2D(1, 0);
-
-	// Momento del próximo recálculo permitido
 	double NextAIDecisionTime = 0.0;
-
 	FTimerHandle FireTimer;
 
-	// --- Lógica ---
+	// Lógica de cerebro (decidir A DONDE ir)
 	void UpdateAI(float DT);
-	void UpdateMovement(float DT);
 
-	// utilidades
+	// Helpers de AI
 	bool IsBlockedAhead(const FVector& Center, bool bAxisX, int Dir, float T) const;
 	bool CanMoveTowards(const FVector2D& Axis) const;
 	void ChooseTurn();
 
+	// Variables de GridAxisLock necesarias para UpdateAI
 	enum class EAxisLock : uint8 { None, X, Y };
 	EAxisLock AxisLock = EAxisLock::None;
 	double    LockUntilTime = 0.0;
-
-	enum class ECardinalLOS : uint8 { NotCardinal, Clear, Brick, Steel };
-
-	// Devuelve el estado de la línea cardinal entre From y To.
-	// Usa AlignEpsilonFactor * Tile como tolerancia para “estar alineado”.
-	ECardinalLOS CheckCardinalLineToTarget(const FVector& From, const FVector& To, FVector* OutFirstHitWorld = nullptr) const;
-
+	// LookAheadTiles, AlignEpsilonFactor, TieDeadbandFactor...
+	// Si estas las usas SOLO para decidir (no para mover), mantenlas aquí. 
+	// Si se usan en movimiento físico, muévelas a la Base. 
+	// Asumo que son para la IA de decisión, así que las dejo:
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI") float MinLockTime = 0.30f;
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI") float AlignEpsilonFactor = 0.25f;
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI") float TieDeadbandFactor = 0.10f;
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI") int32 LookAheadTiles = 1;
 };

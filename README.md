@@ -88,8 +88,6 @@ Los niveles se definen en archivos JSON ubicados en la carpeta del proyecto. El 
     { "time": 35.0, "type":"Armored","spawn":"T" }
   ]
 }
-```markdown
----
 
 ## 🛠️ Herramientas de Depuración (Console Variables)
 

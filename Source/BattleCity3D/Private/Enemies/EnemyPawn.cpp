@@ -4,8 +4,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Map/MapGridSubsystem.h"
 #include "Projectiles/Projectile.h"
-#include "Engine/StaticMesh.h"
-#include "UObject/ConstructorHelpers.h"
+#include "DrawDebugHelpers.h"
 #include "Components/EnemyMovement/EnemyMovementComponent.h"
 
 
@@ -69,6 +68,14 @@ void AEnemyPawn::BeginPlay()
 	{
 		GetWorldTimerManager().SetTimer(FireTimer, this, &AEnemyPawn::Fire, FireInterval, true, FireInterval);
 	}
+
+	// SNAP AL NACER PARA EVITAR ATASCOS INICIALES
+	if (Grid)
+	{
+		FVector P = GetActorLocation();
+		P = Grid->SnapWorldToSubgrid(P, true);
+		SetActorLocation(P);
+	}
 }
 
 void AEnemyPawn::Tick(float DeltaSeconds)
@@ -76,6 +83,25 @@ void AEnemyPawn::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	if (!MovementComp) { UpdateAI(DeltaSeconds); }
 	UpdateMovement(DeltaSeconds);
+
+	// --- DEBUG CAJA DE COLISIÓN ---
+	static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("bc.collision.debug"));
+	if (Grid && CVar && CVar->GetInt() > 0)
+	{
+		const float TileSize = Grid->GetTileSize();
+		const float Extent = TileSize * 0.96f;
+		FVector Pos = GetActorLocation();
+
+		bool bOverlapping = false;
+		FVector Corners[4] = {
+			Pos + FVector(Extent, Extent, 0), Pos + FVector(Extent, -Extent, 0),
+			Pos + FVector(-Extent, Extent, 0), Pos + FVector(-Extent, -Extent, 0)
+		};
+		for (const FVector& P : Corners) if (Grid->IsPointBlocked(P)) { bOverlapping = true; break; }
+
+		FColor Color = bOverlapping ? FColor::Red : FColor::Green;
+		DrawDebugBox(GetWorld(), Pos + FVector(0, 0, 10), FVector(Extent, Extent, 55.f), Color, false, -1.f, 0, 2.0f);
+	}
 }
 
 void AEnemyPawn::UpdateAI(float DT)
@@ -250,85 +276,75 @@ void AEnemyPawn::ChooseTurn()
 
 void AEnemyPawn::UpdateMovement(float DT)
 {
-	// Rotación por dirección
 	if (!RawMoveInput.IsNearlyZero())
 	{
 		FacingDir = RawMoveInput;
-		const float Yaw = (FacingDir.X > 0 ? 0.f :
-			(FacingDir.X < 0 ? 180.f :
-				(FacingDir.Y > 0 ? 90.f : -90.f)));
+		const float Yaw = (FacingDir.X > 0 ? 0.f : (FacingDir.X < 0 ? 180.f : (FacingDir.Y > 0 ? 90.f : -90.f)));
 		SetActorRotation(FRotator(0.f, Yaw, 0.f));
 	}
 
-	// Suavizado de velocidad
 	if (!RawMoveInput.IsNearlyZero())
 		Velocity = FMath::Vector2DInterpTo(Velocity, RawMoveInput * MoveSpeed, DT, AccelRate);
 	else
 		Velocity = FMath::Vector2DInterpTo(Velocity, FVector2D::ZeroVector, DT, DecelRate);
 
-	if (!Grid)
+	if (!Grid) return;
+
+	const float TileSize = Grid->GetTileSize();
+	const float TankExtent = TileSize * 0.96f;
+	FVector CurrentPos = GetActorLocation();
+	FVector MoveDelta = FVector(Velocity.X, Velocity.Y, 0.f) * DT;
+	FVector FuturePos = CurrentPos + MoveDelta;
+
+	bool bBlocked = false;
+	bool bMovingX = FMath::Abs(Velocity.X) > FMath::Abs(Velocity.Y);
+	FVector DebugP1, DebugP2;
+	const float SideMargin = 2.0f;
+
+	if (bMovingX)
 	{
-		AddActorWorldOffset(FVector(Velocity.X, Velocity.Y, 0.f) * DT, true);
-		return;
+		float FrontX = (Velocity.X > 0) ? (FuturePos.X + TankExtent) : (FuturePos.X - TankExtent);
+		FVector P1(FrontX, FuturePos.Y + TankExtent - SideMargin, CurrentPos.Z);
+		FVector P2(FrontX, FuturePos.Y - TankExtent + SideMargin, CurrentPos.Z);
+		DebugP1 = P1; DebugP2 = P2;
+
+		if (Grid->IsPointBlocked(P1) || Grid->IsPointBlocked(P2)) bBlocked = true;
+		else
+		{
+			float IdealY = FMath::RoundToFloat(FuturePos.Y / TileSize) * TileSize;
+			FuturePos.Y = FMath::FInterpConstantTo(FuturePos.Y, IdealY, DT, AlignRate);
+		}
+	}
+	else
+	{
+		float FrontY = (Velocity.Y > 0) ? (FuturePos.Y + TankExtent) : (FuturePos.Y - TankExtent);
+		FVector P1(FuturePos.X + TankExtent - SideMargin, FrontY, CurrentPos.Z);
+		FVector P2(FuturePos.X - TankExtent + SideMargin, FrontY, CurrentPos.Z);
+		DebugP1 = P1; DebugP2 = P2;
+
+		if (Grid->IsPointBlocked(P1) || Grid->IsPointBlocked(P2)) bBlocked = true;
+		else
+		{
+			float IdealX = FMath::RoundToFloat(FuturePos.X / TileSize) * TileSize;
+			FuturePos.X = FMath::FInterpConstantTo(FuturePos.X, IdealX, DT, AlignRate);
+		}
 	}
 
-	// Centro tile actual
-	int32 CX, CY; const float T = Grid->GetTileSize();
-	const bool bHaveCell = Grid->WorldToGrid(GetActorLocation(), CX, CY);
-	const FVector Center = bHaveCell ? Grid->GridToWorld(CX, CY, T * 0.5f) : GetActorLocation();
-
-	// Corte en borde según eje dominante
-	const bool bXDominant = (FMath::Abs(Velocity.X) >= FMath::Abs(Velocity.Y));
-	auto AdvanceAxis = [&](bool bAxisX, float VComp, float& OutDX, float& OutDY)
+	// --- DEBUG VISUAL (BIGOTES) CONDICIONAL ---
+	static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("bc.collision.debug"));
+	if (CVar && CVar->GetInt() > 0)
+	{
+		if (UWorld* W = GetWorld())
 		{
-			OutDX = 0.f; OutDY = 0.f;
-			if (FMath::IsNearlyZero(VComp)) return;
-			const int Dir = (VComp > 0.f) ? +1 : -1;
-			const float Delta = VComp * DT;
+			bool bP1Hit = Grid->IsPointBlocked(DebugP1);
+			bool bP2Hit = Grid->IsPointBlocked(DebugP2);
+			DrawDebugPoint(W, DebugP1, 12.f, bP1Hit ? FColor::Red : FColor::Green, false, 0.03f);
+			DrawDebugPoint(W, DebugP2, 12.f, bP2Hit ? FColor::Red : FColor::Green, false, 0.03f);
+		}
+	}
 
-			if (bAxisX)
-			{
-				const bool BlockedFront = !Grid->IsPassableForPawnAtWorld(FVector(Center.X + Dir * (T * 0.51f), Center.Y, Center.Z));
-				const float Edge = Center.X + Dir * (T * 0.5f - StopMargin);
-				const float NextX = GetActorLocation().X + Delta;
-				OutDX = Delta;
-				if (BlockedFront && ((Dir > 0 && NextX > Edge) || (Dir < 0 && NextX < Edge)))
-					OutDX = Edge - GetActorLocation().X;
-			}
-			else
-			{
-				const bool BlockedFront = !Grid->IsPassableForPawnAtWorld(FVector(Center.X, Center.Y + Dir * (T * 0.51f), Center.Z));
-				const float Edge = Center.Y + Dir * (T * 0.5f - StopMargin);
-				const float NextY = GetActorLocation().Y + Delta;
-				OutDY = Delta;
-				if (BlockedFront && ((Dir > 0 && NextY > Edge) || (Dir < 0 && NextY < Edge)))
-					OutDY = Edge - GetActorLocation().Y;
-			}
-		};
-
-	float dX = 0, dY = 0;
-	if (bXDominant)  AdvanceAxis(true, Velocity.X, dX, dY);
-	else             AdvanceAxis(false, Velocity.Y, dX, dY);
-
-	FHitResult Hit;
-	AddActorWorldOffset(FVector(dX, dY, 0.f), true, &Hit);
-
-	// Recalcular tile nuevo
-	int32 NCX, NCY;
-	const bool bHaveNewCell = Grid->WorldToGrid(GetActorLocation(), NCX, NCY);
-	const FVector NewCenter = bHaveNewCell ? Grid->GridToWorld(NCX, NCY, T * 0.5f) : GetActorLocation();
-
-	// Snap SIEMPRE al subgrid (ambos ejes) + clamp dentro del tile nuevo
-	FVector P = GetActorLocation();
-	P = Grid->SnapWorldToSubgrid(P, /*bKeepZ*/true);
-
-	const float SubStep = Grid->GetSubStep();
-	const float LocalStopMargin = FMath::Max(StopMargin, SubStep * 0.25f);
-	const float Half = T * 0.5f - LocalStopMargin;
-	P.X = FMath::Clamp(P.X, NewCenter.X - Half, NewCenter.X + Half);
-	P.Y = FMath::Clamp(P.Y, NewCenter.Y - Half, NewCenter.Y + Half);
-
-	SetActorLocation(FVector(P.X, P.Y, NewCenter.Z));
+	if (!bBlocked) SetActorLocation(FuturePos);
+	else Velocity = FVector2D::ZeroVector;
 }
 
 void AEnemyPawn::Fire()

@@ -7,7 +7,7 @@
 
 ABattleBase::ABattleBase()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
 
 	Body = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Body"));
 	SetRootComponent(Body);
@@ -30,6 +30,29 @@ ABattleBase::ABattleBase()
 void ABattleBase::BeginPlay()
 {
 	Super::BeginPlay();
+}
+
+void ABattleBase::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	// Consultar variable global
+	static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("bc.collision.debug"));
+	if (CVar && CVar->GetInt() > 0)
+	{
+		DrawDebugBounds();
+	}
+}
+
+void ABattleBase::DrawDebugBounds()
+{
+	FColor DrawColor = bIsEnemyBase ? FColor(138, 43, 226) /*Violeta*/ : FColor::Blue;
+
+	FVector Origin, BoxExtent;
+	GetActorBounds(true, Origin, BoxExtent);
+
+	// Dibujamos un poco más grande para rodear el mesh
+	DrawDebugBox(GetWorld(), Origin, BoxExtent * 1.05f, DrawColor, false, -1.f, 0, 3.0f);
 }
 
 float ABattleBase::TakeDamage(float DamageAmount, const FDamageEvent& /*DamageEvent*/,

@@ -323,3 +323,82 @@ void UMapGridSubsystem::GetBaseWorldLocations(TArray<FVector>& Out) const
 	for (int32 i = 0; i < BaseCells.Num(); ++i)
 		Out.Add(GridToWorld(BaseCells[i].X, BaseCells[i].Y, TileSize * 0.5f));
 }
+
+bool UMapGridSubsystem::IsPointBlocked(const FVector& WorldPos) const
+{
+	// Transformar posición mundo a local del mapa
+	FVector Local = MapXform.InverseTransformPosition(WorldPos);
+
+	// Usar FloorToInt para obtener el índice real donde cae el punto decimal
+	// (Ej: 99.9 es celda 0, 100.0 es celda 1)
+	int32 X = FMath::FloorToInt(Local.X / TileSize);
+	int32 Y = FMath::FloorToInt(Local.Y / TileSize);
+
+	// Límites del mapa = Muro impenetrable
+	if (X < 0 || X >= MapWidth || Y < 0 || Y >= MapHeight) return true;
+
+	const int32 Idx = XYToIndex(X, Y);
+
+	// Revisar terreno base (Agua bloquea tanques)
+	if (TerrainGrid.IsValidIndex(Idx) && TerrainGrid[Idx] == ETerrainType::Water) return true;
+
+	// Revisar obstáculos (Ladrillo o Acero)
+	if (ObstacleGrid.IsValidIndex(Idx) && ObstacleGrid[Idx] != EObstacleType::None) return true;
+
+	return false;
+}
+
+bool UMapGridSubsystem::ProcessProjectileHit(const FVector& Location, float Radius, AActor* InstigatorActor)
+{
+	// Calcular el cuadro (AABB) que abarca el proyectil en espacio grid
+	FVector LocalMin = MapXform.InverseTransformPosition(Location - FVector(Radius, Radius, 0));
+	FVector LocalMax = MapXform.InverseTransformPosition(Location + FVector(Radius, Radius, 0));
+
+	int32 MinX = FMath::FloorToInt(LocalMin.X / TileSize);
+	int32 MaxX = FMath::FloorToInt(LocalMax.X / TileSize);
+	int32 MinY = FMath::FloorToInt(LocalMin.Y / TileSize);
+	int32 MaxY = FMath::FloorToInt(LocalMax.Y / TileSize);
+
+	bool bHitSomething = false;
+
+	// Recorrer todas las celdas que toca el volumen del proyectil
+	for (int32 x = MinX; x <= MaxX; ++x)
+	{
+		for (int32 y = MinY; y <= MaxY; ++y)
+		{
+			// Si toca fuera del mapa, cuenta como impacto (acero)
+			if (x < 0 || x >= MapWidth || y < 0 || y >= MapHeight)
+			{
+				bHitSomething = true;
+				continue;
+			}
+
+			int32 Idx = XYToIndex(x, y);
+			if (!ObstacleGrid.IsValidIndex(Idx)) continue;
+
+			EObstacleType Obs = ObstacleGrid[Idx];
+
+			if (Obs == EObstacleType::Steel)
+			{
+				bHitSomething = true; // Acero detiene la bala pero no se rompe
+			}
+			else if (Obs == EObstacleType::Brick)
+			{
+				bHitSomething = true;
+				// Lógica de daño a ladrillo
+				if (ObstacleHPGrid[Idx] > 0)
+				{
+					ObstacleHPGrid[Idx]--;
+					if (ObstacleHPGrid[Idx] == 0)
+					{
+						ObstacleGrid[Idx] = EObstacleType::None;
+						// Actualizar visuales
+						if (Visual.IsValid()) Visual->RemoveBrickInstanceAt(x, y);
+						OnGridCellChanged.Broadcast(FIntPoint(x, y));
+					}
+				}
+			}
+		}
+	}
+	return bHitSomething;
+}

@@ -84,9 +84,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Map|Player")
 	void RespawnPlayer();
 
+	// Dibuja el grid lógico en el mundo para depuración
+	UFUNCTION(BlueprintCallable, Category = "Debug")
+	void DrawDebugGrid(bool bPersistent = false, float Lifetime = 0.0f);
+
 protected:
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaTime) override;
 
 private:
 	// Asset data

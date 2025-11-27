@@ -73,36 +73,23 @@ void AProjectile::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	// 1) Sweep físico para actores dinámicos (enemigos, jugador, etc.)
-	DoManualSweep(DeltaSeconds);
+	if (!Grid) return;
 
-	// 2) Barrido determinista por GRID usando el subgrid (siempre)
-	if (Grid)
+	// 1. Detección Volumétrica contra el Grid
+	// Un radio de 15.0f garantiza que si pasa entre dos tiles (unión), toque ambos.
+	float ProjRadius = 15.0f;
+
+	// Usamos la posición actual.
+	if (Grid->ProcessProjectileHit(GetActorLocation(), ProjRadius, GetInstigator()))
 	{
-		const float Zc = Grid->GetTileSize() * 0.5f;
-		FVector From = FVector(LastLocation.X, LastLocation.Y, Zc);
-		FVector To = FVector(GetActorLocation().X, GetActorLocation().Y, Zc);
-		const FVector Delta = To - From;
-		const float Dist = Delta.Size2D();
-		if (Dist > KINDA_SMALL_NUMBER)
-		{
-			const float Step = FMath::Max(2.f, Grid->GetSubStep() * 0.9f);
-			const int32 Steps = FMath::Clamp(FMath::CeilToInt(Dist / Step), 1, 128);
-			const FVector Dir = Delta / (float)Steps;
-
-			bool bWasBrick = false;
-			FVector P = From;
-			for (int32 i = 0; i < Steps; ++i)
-			{
-				P += Dir;
-				if (Grid->TryHitObstacleAtWorld(P, bWasBrick))
-				{
-					Destroy();
-					return;
-				}
-			}
-		}
+		// Aquí podrías spawnear una explosión (Emitter)
+		Destroy();
+		return;
 	}
+
+	// 2. Colisión con Actores Dinámicos (Tanques, Base, otras Balas)
+	// Mantenemos tu barrido manual original para esto
+	DoManualSweep(DeltaSeconds);
 
 	LastLocation = GetActorLocation();
 }

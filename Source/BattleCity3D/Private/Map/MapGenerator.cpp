@@ -5,16 +5,22 @@
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
 #include "Camera/CameraActor.h"
-#include "Kismet/GameplayStatics.h"
-
 #include "Map/MapConfigAsset.h"
 #include "Map/MapGridSubsystem.h"
 #include "Player/TankPawn.h"
 #include "Utils/JsonMapUtils.h"
+#include "DrawDebugHelpers.h"
+
+
+static TAutoConsoleVariable<int32> CVarBcMapDebug(
+	TEXT("bc.map.debug"),
+	0,
+	TEXT("1: Muestra el grid de debug. 0: Oculta."),
+	ECVF_Cheat);
 
 AMapGenerator::AMapGenerator()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
 
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	SetRootComponent(Root);
@@ -259,4 +265,68 @@ void AMapGenerator::RespawnPlayer()
 		PlayerWorldStart = Grid->GetPlayerWorldStart();
 	}
 	SpawnAndPossessPlayer();
+}
+
+void AMapGenerator::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	// Solo dibuja si la variable es > 0
+	if (CVarBcMapDebug.GetValueOnGameThread() > 0)
+	{
+		DrawDebugGrid(false, -1.f);
+	}
+}
+
+void AMapGenerator::DrawDebugGrid(bool bPersistent, float Lifetime)
+{
+	if (MapWidth <= 0 || MapHeight <= 0 || TileSize <= 0) return;
+
+	const UWorld* World = GetWorld();
+	if (!World) return;
+
+	const FTransform& Tr = GetActorTransform();
+	// Elevamos Z para que se vea bien sobre los ladrillos
+	const float Z = GroundThickness + 55.0f;
+
+	const FColor ColorMain = FColor::Yellow;
+	const FColor ColorSub = FColor::Emerald; // Verde brillante
+	const float ThicknessMain = 3.0f;
+	const float ThicknessSub = 1.5f;
+
+	const float MapW = MapWidth * TileSize;
+	const float MapH = MapHeight * TileSize;
+	const float SubStep = TileSize / (float)FMath::Max(1, SubdivisionsPerTile);
+
+	// LÍNEAS VERTICALES
+	int32 TotalStepsX = MapWidth * SubdivisionsPerTile;
+	for (int32 i = 0; i <= TotalStepsX; ++i)
+	{
+		float X = i * SubStep;
+		bool bIsMain = (i % SubdivisionsPerTile == 0);
+
+		FVector Start = Tr.TransformPosition(FVector(X, 0, Z));
+		FVector End = Tr.TransformPosition(FVector(X, MapH, Z));
+
+		DrawDebugLine(World, Start, End,
+			bIsMain ? ColorMain : ColorSub,
+			bPersistent, Lifetime, 0,
+			bIsMain ? ThicknessMain : ThicknessSub);
+	}
+
+	// LÍNEAS HORIZONTALES
+	int32 TotalStepsY = MapHeight * SubdivisionsPerTile;
+	for (int32 i = 0; i <= TotalStepsY; ++i)
+	{
+		float Y = i * SubStep;
+		bool bIsMain = (i % SubdivisionsPerTile == 0);
+
+		FVector Start = Tr.TransformPosition(FVector(0, Y, Z));
+		FVector End = Tr.TransformPosition(FVector(MapW, Y, Z));
+
+		DrawDebugLine(World, Start, End,
+			bIsMain ? ColorMain : ColorSub,
+			bPersistent, Lifetime, 0,
+			bIsMain ? ThicknessMain : ThicknessSub);
+	}
 }

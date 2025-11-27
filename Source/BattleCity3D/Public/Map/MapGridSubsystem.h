@@ -71,6 +71,15 @@ public:
 	const TArray<FIntPoint>& GetPlayerSpawnCells() const { return PlayerSpawnCells; }
 	const TArray<FIntPoint>& GetEnemySpawnCells() const { return EnemySpawnCells; }
 
+
+	// Verifica si un punto exacto del mundo (sin redondear) toca un obstáculo
+	UFUNCTION(BlueprintCallable, Category = "MapGrid|Collision")
+	bool IsPointBlocked(const FVector& WorldPos) const;
+
+	// Procesa el impacto de un proyectil con volumen (radio)
+	UFUNCTION(BlueprintCallable, Category = "MapGrid|Collision")
+	bool ProcessProjectileHit(const FVector& Location, float Radius, AActor* InstigatorActor);
+
 	// Accesores
 	int32  GetWidth() const { return MapWidth; }
 	int32  GetHeight() const { return MapHeight; }

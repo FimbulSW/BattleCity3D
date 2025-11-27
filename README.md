@@ -1,144 +1,127 @@
-### Archivos clave
+# Battle City 3D (Unreal Engine 5)
 
-- **Mapa / Estado**
-  - `MapGridSubsystem.h/.cpp` – Representa el grid lógico (obstáculos, passability, spawns, base, waves).
-  - `MapGenerator.h/.cpp` – Construye la **vista** por instanced meshes según el grid.
-  - `MapConfigAsset.h/.cpp` – Asset con configuración y datos de mapa (legend, filas, waves).
+Este proyecto es una reimplementación moderna y en 3D de las mecánicas clásicas de *Battle City* (Namco, 1985) desarrollada en **Unreal Engine 5.6+** utilizando C++.
 
-- **Juego base**
-  - `BattleGameMode.h/.cpp` – Reglas (vidas, victoria/derrota, respawns).
-  - `BattleGameInstance.h/.cpp` – Glue de juego (si aplica).
-
-- **Jugador / Enemigos / Combate**
-  - `TankPawn.h/.cpp` – Tanque del jugador (movimiento cardinal, disparo).
-  - `EnemyPawn.h/.cpp` – Enemigo genérico (usa componentes/policies).
-  - `Projectile.h/.cpp` – Proyectiles, colisiones deterministas con grid (rompen ladrillos).
-  - `BattleBase.h/.cpp` – “Águila”/Base; su destrucción provoca derrota.
-
-- **Oleadas / Spawns**
-  - `EnemySpawner.h/.cpp` – Orquesta waves, límites de vivos, **políticas** de objetivo y spawn point.
-  - `EnemySpawnPointPolicy_*.h/.cpp` – Políticas de selección de punto de spawn.
-
-- **IA por Políticas (Goals/Movement)**
-  - `EnemyGoalPolicy*.h/.cpp` – A qué objetivo prioriza la IA (base/jugador), con reglas:
-    - `RandomFixed`, `AdvantageBias` (histéresis), `WeightedDynamic`.
-  - `EnemyMovementComponent.h/.cpp` – Componente que decide movimiento **vía**:
-    - `EnemyMovePolicy.h/.cpp` (base)
-    - `EnemyMovePolicy_GridAxisLock.h/.cpp` (lock de eje + “stop & shoot” ante ladrillo frontal).
+El proyecto se destaca por una arquitectura modular basada en **Componentes** y **Políticas (Strategy Pattern)**, separando claramente la lógica de juego (Grid), la vista (Instanced Meshes) y la toma de decisiones de la IA.
 
 ---
 
-## 🧠 Arquitectura de IA (políticas enchufables)
+## 📂 Estructura del Proyecto y Archivos Clave
 
-### 1) Objetivo (GoalPolicy) – en **EnemySpawner**
-- Selecciona/actualiza la **meta** de cada enemigo: `HuntBase` o `HuntPlayer`.
-- Políticas incluidas:
-  - `RandomFixed` – Asignación aleatoria al spawn, **no** cambia.
-  - `AdvantageBias` – Cambia **globalmente** según vivos (umbrales con histéresis).
-  - `WeightedDynamic` – Reevaluación periódica, con sesgo y jitter; per-enemigo o global.
-- Uso: en el `EnemySpawner` del nivel, selecciona **GoalPolicyClass** y luego edita la instancia inline.
+### 1. Core & Reglas de Juego
+* **`BattleGameMode`**: Orquesta el ciclo de vida de la partida. Gestiona el *spawneo* de la base (Águila), vincula el `EnemySpawner`, controla las condiciones de Victoria/Derrota y el respawn del jugador.
+* **`BattlePlayerController`**: Configura el sistema de **Enhanced Input** (`IMC_Tank`) y gestiona la posesión del Pawn.
+* **`BattleGameInstance`**: Subsistema persistente del juego.
 
-### 2) Movimiento (MovePolicy) – vía **EnemyMovementComponent** del EnemyPawn
-- El `EnemyMovementComponent` construye un **contexto de movimiento** (pos, facing, target, consultas al grid) y delega en la **MovePolicy**.
-- Política incluida:
-  - `EnemyMovePolicy_GridAxisLock`:
-    - Evita “bamboleo” diagonal (bloqueo de eje + deadband).
-    - Si hay **ladrillo frontal**, **se detiene y dispara** (no gira a la ortogonal).
-    - Look-ahead para evitar girar contra paredes.
-- Uso: en el componente **EnemyMovement** del `EnemyPawn`, selecciona **MovePolicyClass** y ajusta tunings (`MinLockTime`, `AlignEpsilonFactor`, etc.).
+### 2. Entidades (Tanques y Combate)
+* **`Common/BattleTankPawn`** (Clase Base): Centraliza la física de movimiento compartida. Implementa el sistema de **colisión determinista** usando "bigotes" (raycasts) contra el Grid y el **snap al subgrid** para movimiento cardinal fluido.
+* **`Player/TankPawn`**: Hereda de la base. Gestiona el input del jugador y el disparo.
+* **`Enemies/EnemyPawn`**: Hereda de la base. Posee el `EnemyMovementComponent` (el "cerebro") y define stats (HP, Velocidad) según el tipo (`Basic`, `Fast`, `Power`, `Armored`).
+* **`Projectiles/Projectile`**: Implementa una **detección volumétrica** contra el Grid para destruir ladrillos de forma precisa y colisiones por barrido (`Sweep`) contra actores dinámicos.
+* **`BattleBases/BattleBase`**: La base a defender. Su destrucción detona el *Game Over*.
 
-### 3) Punto de aparición (SpawnPointPolicy) – en **EnemySpawner**
-- Decide el **orden de prueba** de puntos de spawn (el Spawner evita encimarse y reintenta).
-- Políticas incluidas:
-  - `RandomAny` – Aleatorio entre todos los puntos válidos (unión de símbolos, `.` siempre vacío).
-  - `FarFromPlayer` – Prioriza puntos lejanos al jugador (con umbral configurable).
-
-> Todas las políticas usan el patrón **Class + Instance (EditInlineNew)** para ediciones cómodas en el editor y evitar recursión del Property Editor.
+### 3. Mapa y Sistema de Grid
+* **`MapGridSubsystem`**: Representa el estado lógico del mundo. Gestiona la matriz de terrenos (`Ice`, `Water`, `Forest`) y obstáculos (`Brick`, `Steel`), así como su salud.
+* **`MapGenerator`**: Se encarga exclusivamente de la representación visual utilizando **Instanced Static Meshes (ISM)** para optimizar el rendimiento.
+* **`MapConfigAsset`**: DataAsset que almacena la configuración del nivel (dimensiones, layout, oleadas).
+* **`MapConfigImporter` (Plugin)**: Plugin de editor que permite importar archivos `.json` directamente como assets de mapa.
 
 ---
 
-## 🗺️ Mapas y Waves
+## 🧠 Arquitectura de IA (Sistema de Políticas)
 
-- Los datos de mapa viven en un **`UMapConfigAsset`**:
-  - `width`, `height`, `tileSize`
-  - `rows[]` – el layout del grid (caracteres por tile)
-  - `legend{}` – símbolos → tipos de tile (p. ej. `"."` vacío, `"B"` ladrillo, `"S"` acero, etc.)
-  - `waves[]` – tiempo, tipo de enemigo, cantidad, etc.
+La IA utiliza un diseño desacoplado donde el comportamiento se define mediante la composición de pequeñas políticas lógicas.
 
-> **Spawn points**: el spawner usa la **unión** de todos los símbolos marcados como spawn (ignorando `"."`).
+### 1. Movimiento (`EnemyMovementComponent`)
+El componente `EnemyMovementComponent` solicita inputs de movimiento al Pawn basándose en una **Move Policy** intercambiable:
 
----
+* **`GridAxisLock`**: Movimiento básico cardinal. Incluye lógica "Stop & Shoot" si detecta un ladrillo bloqueando el camino directo.
+* **`PathFollow`**: Utiliza el subsistema `GridPathManager` (A*) para calcular y seguir rutas complejas hacia el objetivo.
+* **`WanderFar`**: Deambula aleatoriamente si el objetivo está muy lejos o el camino está bloqueado.
+* **`ShootWhenBlocking`**: Sugiere disparar si hay un obstáculo destructible inmediatamente enfrente.
+* **`Composite`**: Permite combinar múltiples políticas (ej. *PathFollow* + *ShootWhenBlocking*) ejecutándolas secuencialmente y fusionando sus decisiones.
 
-## 🎮 Comportamiento in-game (resumen)
+### 2. Objetivos (`GoalPolicy`) - En `EnemySpawner`
+Define qué prioriza el enemigo: ¿Atacar la Base o cazar al Jugador?
 
-- Movimiento y disparo **cardinal** (N/E/S/O).
-- Los proyectiles destruyen **ladrillo**, no **acero**.
-- Enemigos:
-  - Objetivo (base/jugador) según **GoalPolicy**.
-  - Movimiento y “stop & shoot” según **MovePolicy**.
-  - Spawneo sin encimarse, respetando `MaxAlive`.
+* **`RandomFixed`**: Asigna un objetivo fijo al nacer basado en una probabilidad.
+* **`AdvantageBias`**: Cambia el objetivo de todos los enemigos dinámicamente según cuántos aliados queden vivos (comportamiento de manada).
+* **`WeightedDynamic`**: Reevalúa periódicamente el objetivo con probabilidades ponderadas.
 
----
+### 3. Aparición (`SpawnPointPolicy`) - En `EnemySpawner`
+Controla la selección del punto de nacimiento para evitar colisiones y mejorar el flujo.
 
-## 🧪 Debug & Telemetría
-
-- HUD simple desde `EnemySpawner`:
-  - Consola del juego:
-    ```
-    bc_ai_debug 1
-    ```
-  - Muestra: `Alive`, `Spawned/Planned`, `HB/HP` y policy activa.
-  - Desactivar: `bc_ai_debug 0`.
+* **`RandomAny`**: Elige aleatoriamente entre todos los puntos válidos definidos en el mapa.
+* **`FarFromPlayer`**: Prioriza los puntos de aparición más lejanos a la posición actual del jugador.
 
 ---
 
-## ⚙️ Parámetros útiles
+## 🗺️ Formato de Mapa (JSON)
 
-- **EnemySpawner**
-  - `MaxAlive`, `GoalPolicyClass` (+ props específicas), `SpawnPointPolicyClass` (+ props).
+Los niveles se definen en archivos JSON ubicados en la carpeta del proyecto. El plugin `MapConfigImporter` los procesa automáticamente.
 
-- **EnemyMovementComponent (en EnemyPawn)**
-  - `MovePolicyClass`
-  - `MinLockTime`, `AlignEpsilonFactor`, `TieDeadbandFactor`, `LookAheadTiles`
-  - `bPreferShootWhenFrontBrick`, `FrontCheckTiles`
+**Ejemplo de estructura (`Prototype.json`):**
+
+```json
+{
+  "width": 26,
+  "height": 26,
+  "tileSize": 100.0,
+  "rows": [
+    "..SSSS..FFFF......BBBBBBBB",
+    "........P.........BBBBV.BB",
+    "....WWWW...........BBBBBBB"
+  ],
+  "legend": {
+    ".": {"terrain":"Ground"},
+    "I": {"terrain":"Ice"},
+    "W": {"terrain":"Water"},
+    "F": {"terrain":"Forest"},
+    "B": {"obstacle":"Brick"},
+    "S": {"obstacle":"Steel"},
+    "P": {"playerStart": true},
+    "A": {"enemySpawn": "Basic"},
+    "T": {"enemySpawn": "Armored"}
+  },
+  "waves": [
+    { "time": 3.0,  "type":"Basic",  "spawn":"A" },
+    { "time": 35.0, "type":"Armored","spawn":"T" }
+  ]
+}
+```markdown
+---
+
+## 🛠️ Herramientas de Depuración (Console Variables)
+
+Abre la consola en juego (`~`) para utilizar estas herramientas de visualización:
+
+| Comando | Valores | Descripción |
+| :--- | :---: | :--- |
+| `bc.ai.debug` | `0` / `1` | Muestra en pantalla el estado de la IA: Cantidad de vivos, oleadas pendientes y política activa. |
+| `bc.map.debug` | `0` / `1` | Dibuja las líneas del Grid lógico y el Subgrid sobre el terreno. |
+| `bc.collision.debug` | `0` / `1` | Visualiza los "bigotes" de colisión de los tanques (Verde = Libre, Rojo = Bloqueado) y los bounds de las bases. |
 
 ---
 
-## 🧩 Extender el proyecto
+## 🚀 Guía de Extensión
 
-- **Nueva GoalPolicy**: deriva de `UEnemyGoalPolicy` y sobreescribe `DecideGoalOnSpawn` / `TickPolicy`. Selección en el spawner.
-- **Nueva MovePolicy**: deriva de `UEnemyMovePolicy` y sobreescribe `ComputeMove`. Conecta en `EnemyMovementComponent`.
-- **Nueva SpawnPointPolicy**: deriva de `UEnemySpawnPointPolicy` y sobreescribe `BuildCandidateOrder`.
+### Añadir un Nuevo Enemigo
+1. Crea un Blueprint hijo de `BP_EnemyPawn`.
+2. Configura sus estadísticas (`HitPoints`, `MoveSpeed`) en el panel de detalles.
+3. En el componente `EnemyMovement`, asigna una **Move Policy Class** (ej. `EnemyMovePolicy_Composite`).
+4. Registra el nuevo enemigo en el `EnemySpawner` del nivel (sección "Spawn Clases").
 
-> Ideas: `Grid_AStarPolicy` (path corto por tiles), `NearBase/EdgesOnly` para spawn, `CombatPolicy` separada si quieres IA de disparo más sofisticada.
-
----
-
-## 🛠️ Notas de diseño
-
-- El **grid real** vive en `MapGridSubsystem`; la **vista** la genera `MapGenerator`.
-- Colisiones deterministas (romper ladrillos) se hacen contra el **grid** (además de física).
-- Se prefiere composición y políticas **instanciables** para minimizar acoplamientos.
+### Crear una Nueva Política de Movimiento
+1. Crea una clase C++ que herede de `UEnemyMovePolicy`.
+2. Sobrescribe el método `ComputeMove(const FMoveContext& Ctx, FMoveDecision& Out)`.
+3. Utiliza el contexto (`Ctx`) para consultar el Grid sin acceder directamente a los actores.
+4. Compila y asígnala en el editor.
 
 ---
 
-## 🧭 Roadmap sugerido
+## 📜 Licencia y Créditos
 
-- HUD de editor con más métricas (disparos limpios vs. a ladrillo).
-- `Grid_AStarPolicy` opcional para enemigos “power”.
-- Override por **Wave** (elegir Goal/Move/SpawnPolicy por oleada).
-- QA automática (sim runner) con export de métricas a CSV.
+**Licencia MIT**
+Copyright (c) 2025 FimbulSW
 
----
-
-## 📜 Licencia
-
-(Sin licencia definida aún; añade la que prefieras: MIT/BSD/Apache-2.0.)
-
----
-
-## 🤝 Créditos
-
-- Código y diseño: (Fimbul).
-- “Battle City” es marca/obra de Namco (1985). Proyecto no comercial y con fines educativos.
-"""
+Este proyecto es de carácter educativo. "Battle City" es una marca original de Namco.

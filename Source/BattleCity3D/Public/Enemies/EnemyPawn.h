@@ -74,11 +74,21 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Move", meta = (ClampMin = "1", ClampMax = "3"))
 	int32 LookAheadTiles = 1; // 1..2 recomendable
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Move")
+	float TurnDelay = 0.12f;
+
+	// Tiempo mínimo entre decisiones de re-rutado hacia el objetivo (evita temblor)
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Brain")
+	float AIReplanInterval = 0.25f;
+
+	// Tiempo que la IA se obliga a mantener una dirección tras chocar y girar (para salir del atasco)
+	UPROPERTY(EditAnywhere, Category = "Enemy|AI|Brain")
+	float AICommitmentTimeAfterTurn = .5f;
 
 	// Expuesto para el MovementComponent
 	UFUNCTION(BlueprintCallable, Category = "Enemy|AI") FVector2D GetFacingDir() const { return FacingDir; }
 	UFUNCTION(BlueprintCallable, Category = "Enemy|AI") void      ApplyRawMoveInput(const FVector2D& In) { RawMoveInput = In; }
-	UFUNCTION(BlueprintCallable, Category = "Enemy|AI") bool      IsFireReady() const; // si ya lo tenías, omite
+	UFUNCTION(BlueprintCallable, Category = "Enemy|AI") bool      IsFireReady() const;
 	bool bPreferShootWhenFrontBrick = true;
 
 	void Fire();
@@ -92,15 +102,15 @@ protected:
 
 private:
 	UPROPERTY() UMapGridSubsystem* Grid = nullptr;
+	float CurrentTurnDelay = 0.0f;
 
 	// Movimiento tipo tanque con subgrid
 	FVector2D RawMoveInput = FVector2D(1, 0);
 	FVector2D Velocity = FVector2D::ZeroVector;
 	FVector2D FacingDir = FVector2D(1, 0);
 
-	// AI
-	double LastDecisionTime = -1e9;
-	double DecisionCooldown = 0.20; // s entre decisiones de giro
+	// Momento del próximo recálculo permitido
+	double NextAIDecisionTime = 0.0;
 
 	FTimerHandle FireTimer;
 

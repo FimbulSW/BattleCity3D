@@ -38,6 +38,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Move|GridLock") float AlignTolerance = 2.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Move|GridLock") float AlignRate = 5000.f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Move|GridLock") float StopMargin = 1.f;
+	// Tiempo (en segundos) que el tanque permanece inmóvil tras un giro brusco.
+	// Evita el desplazamiento accidental al cambiar de dirección.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Move|GridLock")
+	float TurnDelay = 0.06f; // Un valor bajo (0.05 a 0.1) suele bastar
 
 	// Firing
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat") TSubclassOf<AProjectile> ProjectileClass;
@@ -74,4 +78,6 @@ private:
 	FVector2D Velocity = FVector2D::ZeroVector;
 	FVector2D FacingDir = FVector2D(1, 0);
 	double LastFireTime = -1.0;
+	// Temporizador interno para el bloqueo de giro
+	float CurrentTurnDelay = 0.0f;
 };

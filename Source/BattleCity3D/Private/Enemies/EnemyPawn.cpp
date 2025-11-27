@@ -106,57 +106,84 @@ void AEnemyPawn::Tick(float DeltaSeconds)
 
 void AEnemyPawn::UpdateAI(float DT)
 {
-	// === META -> vector deseado con Axis-Lock + histéresis ===
-	const FVector Target = GetAITargetWorld();
-	const FVector To = Target - GetActorLocation();
+	const double Now = UGameplayStatics::GetTimeSeconds(this);
+
+	// 1. CHEQUEO DE BLOQUEO CONSTANTE (Prioridad Alta)
+	// Necesitamos saber SIEMPRE si estamos bloqueados para frenar, aunque no cambiemos de decisión aún.
+	// (Esto evita atravesar paredes mientras esperamos el timer)
 
 	const float Tile = Grid ? Grid->GetTileSize() : 200.f;
+	int32 CX, CY;
+	bool bHaveCell = (Grid && Grid->WorldToGrid(GetActorLocation(), CX, CY));
+	const FVector Center = bHaveCell ? Grid->GridToWorld(CX, CY, Tile * 0.5f) : GetActorLocation();
+
+	// Verificar si la dirección ACTUAL nos lleva a un choque inmediato
+	bool bIsBlockedNow = false;
+	if (Grid && !RawMoveInput.IsNearlyZero())
+	{
+		const bool bAxisX = FMath::Abs(RawMoveInput.X) > 0.f;
+		const int Dir = bAxisX ? (RawMoveInput.X > 0 ? +1 : -1) : (RawMoveInput.Y > 0 ? +1 : -1);
+
+		// Usamos LookAheadTiles para anticipar
+		bIsBlockedNow = IsBlockedAhead(Center, bAxisX, Dir, Tile * LookAheadTiles);
+	}
+
+	// 2. DECISIÓN DE IA (Throttled / Con Freno de mano)
+	// Solo recalculamos si:
+	// A) Ya pasó el tiempo de espera (Timer vencido)
+	// B) O estamos bloqueados AHORA MISMO (Emergencia, hay que girar ya)
+	if (Now < NextAIDecisionTime && !bIsBlockedNow)
+	{
+		return; // Mantener decisión anterior
+	}
+
+	// --- FASE DE PENSAMIENTO ---
+
+	// A. Si estamos bloqueados, forzamos un giro evasivo
+	if (bIsBlockedNow)
+	{
+		ChooseTurn();
+		// ChooseTurn ya actualiza RawMoveInput y establece un tiempo de compromiso largo
+		return;
+	}
+
+	// B. Si estamos libres, perseguimos el objetivo (Lógica de Ejes)
+
+	// Reseteamos el timer para pensamiento normal (más rápido que cuando choca)
+	NextAIDecisionTime = Now + AIReplanInterval;
+
+	const FVector Target = GetAITargetWorld();
+	const FVector To = Target - GetActorLocation();
 	const float eps = AlignEpsilonFactor * Tile;
 	const float db = TieDeadbandFactor * Tile;
 
 	const bool AlignedX = FMath::Abs(To.X) <= eps;
 	const bool AlignedY = FMath::Abs(To.Y) <= eps;
 
-	auto IsAheadBlocked = [&](bool bAxisX, int Dir)->bool
+	// Lambda local para verificar si una dirección propuesta está libre
+	auto IsDirSafe = [&](bool bAxisX, int Dir)->bool
 		{
-			const FVector Center = Grid ? Grid->SnapWorldToSubgrid(GetActorLocation(), true) : GetActorLocation();
-			return IsBlockedAhead(Center, bAxisX, Dir, Tile * LookAheadTiles);
+			const FVector TestCenter = Grid ? Grid->SnapWorldToSubgrid(GetActorLocation(), true) : GetActorLocation();
+			return !IsBlockedAhead(TestCenter, bAxisX, Dir, Tile * LookAheadTiles);
 		};
 
-	// 1) Mantener eje si lock activo y sin bloqueo real
-	const double Now = UGameplayStatics::GetTimeSeconds(this);
-	if (AxisLock != EAxisLock::None && Now < LockUntilTime)
-	{
-		const bool bAxisX = (AxisLock == EAxisLock::X);
-		const int  Dir = bAxisX ? FMath::Sign(To.X == 0 ? FacingDir.X : To.X)
-			: FMath::Sign(To.Y == 0 ? FacingDir.Y : To.Y);
-		if (!IsAheadBlocked(bAxisX, Dir))
-		{
-			RawMoveInput = bAxisX ? FVector2D(Dir, 0.f) : FVector2D(0.f, Dir);
-			return;
-		}
-		// si está bloqueado, liberamos el lock y reevaluamos
-		AxisLock = EAxisLock::None;
-	}
+	FVector2D NewMoveDir = FacingDir; // Por defecto mantener
 
-	// 2) Elegir eje
-	FVector2D Desired = FacingDir;
-
-	// Priorizamos el eje no alineado; si ambos no alineados, aplicamos deadband
+	// Lógica de selección de eje (idéntica a tu anterior, pero ahora solo ocurre cada X segundos)
 	if (!AlignedX)
 	{
 		const int DirX = FMath::Sign(To.X);
-		if (!IsAheadBlocked(true, DirX))
+		if (IsDirSafe(true, DirX))
 		{
-			Desired = FVector2D(DirX, 0.f);
+			NewMoveDir = FVector2D(DirX, 0.f);
 			AxisLock = EAxisLock::X;
 		}
 		else if (!AlignedY)
 		{
 			const int DirY = FMath::Sign(To.Y);
-			if (!IsAheadBlocked(false, DirY))
+			if (IsDirSafe(false, DirY))
 			{
-				Desired = FVector2D(0.f, DirY);
+				NewMoveDir = FVector2D(0.f, DirY);
 				AxisLock = EAxisLock::Y;
 			}
 		}
@@ -164,72 +191,81 @@ void AEnemyPawn::UpdateAI(float DT)
 	else if (!AlignedY)
 	{
 		const int DirY = FMath::Sign(To.Y);
-		if (!IsAheadBlocked(false, DirY))
+		if (IsDirSafe(false, DirY))
 		{
-			Desired = FVector2D(0.f, DirY);
+			NewMoveDir = FVector2D(0.f, DirY);
 			AxisLock = EAxisLock::Y;
 		}
 		else
 		{
 			const int DirX = FMath::Sign(To.X);
-			if (!IsAheadBlocked(true, DirX))
+			if (IsDirSafe(true, DirX))
 			{
-				Desired = FVector2D(DirX, 0.f);
+				NewMoveDir = FVector2D(DirX, 0.f);
 				AxisLock = EAxisLock::X;
 			}
 		}
 	}
 	else
 	{
-		// ambos casi alineados: evita ping-pong con deadband
+		// Ambos alineados (cerca de la meta o en diagonal perfecta)
 		const float dmag = FMath::Abs(FMath::Abs(To.X) - FMath::Abs(To.Y));
-		if (dmag <= db)
+		if (dmag > db) // Solo cambiar si hay clara diferencia
 		{
-			// mantener facing actual
-			Desired = FacingDir;
-			AxisLock = (FMath::Abs(FacingDir.X) > 0.5f) ? EAxisLock::X : (FMath::Abs(FacingDir.Y) > 0.5f ? EAxisLock::Y : EAxisLock::None);
-		}
-		else if (FMath::Abs(To.X) > FMath::Abs(To.Y))
-		{
-			const int DirX = FMath::Sign(To.X);
-			if (!IsAheadBlocked(true, DirX)) { Desired = FVector2D(DirX, 0.f); AxisLock = EAxisLock::X; }
-		}
-		else
-		{
-			const int DirY = FMath::Sign(To.Y);
-			if (!IsAheadBlocked(false, DirY)) { Desired = FVector2D(0.f, DirY); AxisLock = EAxisLock::Y; }
+			if (FMath::Abs(To.X) > FMath::Abs(To.Y))
+			{
+				const int DirX = FMath::Sign(To.X);
+				if (IsDirSafe(true, DirX)) { NewMoveDir = FVector2D(DirX, 0.f); AxisLock = EAxisLock::X; }
+			}
+			else
+			{
+				const int DirY = FMath::Sign(To.Y);
+				if (IsDirSafe(false, DirY)) { NewMoveDir = FVector2D(0.f, DirY); AxisLock = EAxisLock::Y; }
+			}
 		}
 	}
 
-	// 3) Activar lock por ventana mínima
-	if (AxisLock != EAxisLock::None)
+	// Aplicar cambios
+	if (AxisLock != EAxisLock::None) LockUntilTime = Now + MinLockTime;
+	RawMoveInput = NewMoveDir;
+}
+
+void AEnemyPawn::ChooseTurn()
+{
+	// Prioridades: derecha, izquierda, atrás (en el eje ortogonal primero)
+	TArray<FVector2D> Options;
+
+	// Si nos movíamos en X, probar Y. Si nos movíamos en Y, probar X.
+	if (FMath::Abs(RawMoveInput.X) > 0.f)
 	{
-		LockUntilTime = Now + MinLockTime;
-	}
-
-
-	// Centro/tile actual
-	int32 CX, CY; const float T = Grid ? Grid->GetTileSize() : 200.f;
-	const bool bHaveCell = (Grid && Grid->WorldToGrid(GetActorLocation(), CX, CY));
-	const FVector Center = bHaveCell ? Grid->GridToWorld(CX, CY, T * 0.5f) : GetActorLocation();
-
-	bool bBlocked = false;
-	if (Grid && !Desired.IsNearlyZero())
-	{
-		const bool bAxisX = FMath::Abs(Desired.X) > 0.f;
-		const int Dir = bAxisX ? (Desired.X > 0 ? +1 : -1) : (Desired.Y > 0 ? +1 : -1);
-		bBlocked = IsBlockedAhead(Center, bAxisX, Dir, T);
-	}
-
-	if (bBlocked && Now - LastDecisionTime >= DecisionCooldown)
-	{
-		LastDecisionTime = Now;
-		ChooseTurn(); // elige izquierda/derecha o vertical/horizontal alternos
+		Options = { FVector2D(0, +1), FVector2D(0, -1), FVector2D(-RawMoveInput.X, 0) };
 	}
 	else
 	{
-		RawMoveInput = Desired;
+		Options = { FVector2D(+1, 0), FVector2D(-1, 0), FVector2D(0, -RawMoveInput.Y) };
 	}
+
+	// Barajar un poco las opciones ortogonales para que no siempre gire al mismo lado (opcional)
+	// Pero para Battle City clásico, el orden determinista suele estar bien.
+
+	for (const FVector2D& O : Options)
+	{
+		if (CanMoveTowards(O))
+		{
+			RawMoveInput = O;
+
+			// CLAVE: Compromiso.
+			// Si acabamos de chocar y girar, OBLIGAMOS a la IA a mantener esta nueva dirección
+			// por un tiempo (ej. 1 segundo) para que salga del atolladero y no intente
+			// volver a la ruta "óptima" bloqueada inmediatamente.
+			NextAIDecisionTime = UGameplayStatics::GetTimeSeconds(this) + AICommitmentTimeAfterTurn;
+
+			return;
+		}
+	}
+
+	// Si nada es posible (callejón sin salida total), reversa total o quedarse quieto
+	// RawMoveInput se queda como estaba y el sistema de física lo detendrá.
 }
 
 bool AEnemyPawn::IsBlockedAhead(const FVector& Center, bool bAxisX, int Dir, float T) const
@@ -249,40 +285,45 @@ bool AEnemyPawn::CanMoveTowards(const FVector2D& Axis) const
 	return Grid->IsPassableForPawnAtWorld(Pos);
 }
 
-void AEnemyPawn::ChooseTurn()
-{
-	// prioridades: derecha, izquierda, atrás (en el eje ortogonal primero)
-	TArray<FVector2D> Options;
-
-	if (FMath::Abs(RawMoveInput.X) > 0.f)
-	{
-		Options = { FVector2D(0, +1), FVector2D(0, -1), FVector2D(-RawMoveInput.X, 0) };
-	}
-	else
-	{
-		Options = { FVector2D(+1, 0), FVector2D(-1, 0), FVector2D(0, -RawMoveInput.Y) };
-	}
-
-	for (const FVector2D& O : Options)
-	{
-		if (CanMoveTowards(O))
-		{
-			RawMoveInput = O;
-			return;
-		}
-	}
-	// Si nada es posible, nos quedamos y el movimiento cortará en borde
-}
-
 void AEnemyPawn::UpdateMovement(float DT)
 {
+	// 0. Delay de Giro
+	if (CurrentTurnDelay > 0.f)
+	{
+		CurrentTurnDelay -= DT;
+		Velocity = FVector2D::ZeroVector;
+		// Permitir actualizar rotación si la IA cambia de decisión rápido
+		if (!RawMoveInput.IsNearlyZero())
+		{
+			FacingDir = RawMoveInput;
+			const float Yaw = (FacingDir.X > 0 ? 0.f : (FacingDir.X < 0 ? 180.f : (FacingDir.Y > 0 ? 90.f : -90.f)));
+			SetActorRotation(FRotator(0.f, Yaw, 0.f));
+		}
+		return;
+	}
+
+	// 1. Lógica de Giro
 	if (!RawMoveInput.IsNearlyZero())
 	{
 		FacingDir = RawMoveInput;
 		const float Yaw = (FacingDir.X > 0 ? 0.f : (FacingDir.X < 0 ? 180.f : (FacingDir.Y > 0 ? 90.f : -90.f)));
-		SetActorRotation(FRotator(0.f, Yaw, 0.f));
+		FRotator TargetRot(0.f, Yaw, 0.f);
+
+		FVector CurrentFwd = GetActorForwardVector();
+		FVector2D CurrentFwd2D(CurrentFwd.X, CurrentFwd.Y);
+
+		// Detectar cambio de dirección
+		if (FVector2D::DotProduct(CurrentFwd2D, RawMoveInput) < 0.95f)
+		{
+			SetActorRotation(TargetRot);
+			Velocity = FVector2D::ZeroVector;
+			CurrentTurnDelay = TurnDelay; // Activar delay
+			return;
+		}
+		SetActorRotation(TargetRot);
 	}
 
+	// 2. Velocidad
 	if (!RawMoveInput.IsNearlyZero())
 		Velocity = FMath::Vector2DInterpTo(Velocity, RawMoveInput * MoveSpeed, DT, AccelRate);
 	else
@@ -290,6 +331,7 @@ void AEnemyPawn::UpdateMovement(float DT)
 
 	if (!Grid) return;
 
+	// ... (Resto de la función: Bigotes, Colisión y Snap exactamente igual que antes) ...
 	const float TileSize = Grid->GetTileSize();
 	const float TankExtent = TileSize * 0.96f;
 	FVector CurrentPos = GetActorLocation();
@@ -298,6 +340,7 @@ void AEnemyPawn::UpdateMovement(float DT)
 
 	bool bBlocked = false;
 	bool bMovingX = FMath::Abs(Velocity.X) > FMath::Abs(Velocity.Y);
+
 	FVector DebugP1, DebugP2;
 	const float SideMargin = 2.0f;
 
@@ -311,7 +354,9 @@ void AEnemyPawn::UpdateMovement(float DT)
 		if (Grid->IsPointBlocked(P1) || Grid->IsPointBlocked(P2)) bBlocked = true;
 		else
 		{
-			float IdealY = FMath::RoundToFloat(FuturePos.Y / TileSize) * TileSize;
+			float Step = Grid->GetSubStep();
+			if (Step <= 1.f) Step = TileSize;
+			float IdealY = FMath::RoundToFloat(FuturePos.Y / Step) * Step;
 			FuturePos.Y = FMath::FInterpConstantTo(FuturePos.Y, IdealY, DT, AlignRate);
 		}
 	}
@@ -325,22 +370,21 @@ void AEnemyPawn::UpdateMovement(float DT)
 		if (Grid->IsPointBlocked(P1) || Grid->IsPointBlocked(P2)) bBlocked = true;
 		else
 		{
-			float IdealX = FMath::RoundToFloat(FuturePos.X / TileSize) * TileSize;
+			float Step = Grid->GetSubStep();
+			if (Step <= 1.f) Step = TileSize;
+			float IdealX = FMath::RoundToFloat(FuturePos.X / Step) * Step;
 			FuturePos.X = FMath::FInterpConstantTo(FuturePos.X, IdealX, DT, AlignRate);
 		}
 	}
 
-	// --- DEBUG VISUAL (BIGOTES) CONDICIONAL ---
+	// Debug
 	static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("bc.collision.debug"));
-	if (CVar && CVar->GetInt() > 0)
+	if (CVar && CVar->GetInt() > 0 && GetWorld())
 	{
-		if (UWorld* W = GetWorld())
-		{
-			bool bP1Hit = Grid->IsPointBlocked(DebugP1);
-			bool bP2Hit = Grid->IsPointBlocked(DebugP2);
-			DrawDebugPoint(W, DebugP1, 12.f, bP1Hit ? FColor::Red : FColor::Green, false, 0.03f);
-			DrawDebugPoint(W, DebugP2, 12.f, bP2Hit ? FColor::Red : FColor::Green, false, 0.03f);
-		}
+		bool bP1Hit = Grid->IsPointBlocked(DebugP1);
+		bool bP2Hit = Grid->IsPointBlocked(DebugP2);
+		DrawDebugPoint(GetWorld(), DebugP1, 12.f, bP1Hit ? FColor::Red : FColor::Green, false, 0.03f);
+		DrawDebugPoint(GetWorld(), DebugP2, 12.f, bP2Hit ? FColor::Red : FColor::Green, false, 0.03f);
 	}
 
 	if (!bBlocked) SetActorLocation(FuturePos);

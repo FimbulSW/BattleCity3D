@@ -286,27 +286,34 @@ void AMapGenerator::DrawDebugGrid(bool bPersistent, float Lifetime)
 	if (!World) return;
 
 	const FTransform& Tr = GetActorTransform();
-	// Elevamos Z para que se vea bien sobre los ladrillos
+	// Z elevada para verla clara sobre el suelo
 	const float Z = GroundThickness + 55.0f;
 
 	const FColor ColorMain = FColor::Yellow;
-	const FColor ColorSub = FColor::Emerald; // Verde brillante
+	const FColor ColorSub = FColor::Emerald; // Verde sólido y visible
 	const float ThicknessMain = 3.0f;
 	const float ThicknessSub = 1.5f;
 
 	const float MapW = MapWidth * TileSize;
 	const float MapH = MapHeight * TileSize;
+
+	// Ajuste crítico: Offset de medio tile para dibujar bordes, no centros
+	const float OffsetOrigin = -TileSize * 0.5f;
+
 	const float SubStep = TileSize / (float)FMath::Max(1, SubdivisionsPerTile);
 
-	// LÍNEAS VERTICALES
+	// --- LÍNEAS VERTICALES (X) ---
 	int32 TotalStepsX = MapWidth * SubdivisionsPerTile;
 	for (int32 i = 0; i <= TotalStepsX; ++i)
 	{
-		float X = i * SubStep;
+		// Posición base (borde izquierdo del mapa) + avance
+		float LocalX = OffsetOrigin + (i * SubStep);
+
 		bool bIsMain = (i % SubdivisionsPerTile == 0);
 
-		FVector Start = Tr.TransformPosition(FVector(X, 0, Z));
-		FVector End = Tr.TransformPosition(FVector(X, MapH, Z));
+		// Extendemos la línea un poco más allá del borde visual del mapa para claridad
+		FVector Start = Tr.TransformPosition(FVector(LocalX, OffsetOrigin, Z));
+		FVector End = Tr.TransformPosition(FVector(LocalX, OffsetOrigin + MapH, Z));
 
 		DrawDebugLine(World, Start, End,
 			bIsMain ? ColorMain : ColorSub,
@@ -314,15 +321,16 @@ void AMapGenerator::DrawDebugGrid(bool bPersistent, float Lifetime)
 			bIsMain ? ThicknessMain : ThicknessSub);
 	}
 
-	// LÍNEAS HORIZONTALES
+	// --- LÍNEAS HORIZONTALES (Y) ---
 	int32 TotalStepsY = MapHeight * SubdivisionsPerTile;
 	for (int32 i = 0; i <= TotalStepsY; ++i)
 	{
-		float Y = i * SubStep;
+		float LocalY = OffsetOrigin + (i * SubStep);
+
 		bool bIsMain = (i % SubdivisionsPerTile == 0);
 
-		FVector Start = Tr.TransformPosition(FVector(0, Y, Z));
-		FVector End = Tr.TransformPosition(FVector(MapW, Y, Z));
+		FVector Start = Tr.TransformPosition(FVector(OffsetOrigin, LocalY, Z));
+		FVector End = Tr.TransformPosition(FVector(OffsetOrigin + MapW, LocalY, Z));
 
 		DrawDebugLine(World, Start, End,
 			bIsMain ? ColorMain : ColorSub,

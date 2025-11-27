@@ -89,6 +89,7 @@ Los niveles se definen en archivos JSON ubicados en la carpeta del proyecto. El 
   ]
 }
 
+---
 ## 🛠️ Herramientas de Depuración (Console Variables)
 
 Abre la consola en juego (`~`) para utilizar estas herramientas de visualización:
